@@ -5,6 +5,7 @@ import pytest
 
 import app
 import app1
+from neural_script_decoding import web
 
 
 @pytest.fixture()
@@ -27,12 +28,12 @@ def client(tmp_path, monkeypatch):
         ],
     )
     monkeypatch.setattr(app1.ocr_engine, "combine_results", lambda results: results[0]["text"])
-    monkeypatch.setattr(app1, "correct_text_with_llm", lambda text: f"fixed {text}")
+    monkeypatch.setattr(web, "correct_text_with_llm", lambda text, _config: f"fixed {text}")
 
-    def fake_pdf(text, output_path):
+    def fake_pdf(text, output_path, _font_path):
         Path(output_path).write_text(text, encoding="utf-8")
 
-    monkeypatch.setattr(app1, "generate_pdf", fake_pdf)
+    monkeypatch.setattr(web, "generate_pdf", fake_pdf)
 
     with app1.app.test_client() as test_client:
         yield test_client
@@ -65,6 +66,30 @@ def test_upload_generates_pdf_and_cleans_temp_files(client):
     assert len(files) == 1
 
 
+def test_api_ocr_returns_json_and_cleans_temp_files(client):
+    response = client.post(
+        "/api/ocr",
+        data={"file": (BytesIO(b"fake-image-bytes"), "note.jpg")},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["success"] is True
+    assert payload["raw_text"] == "raw text"
+    assert payload["corrected_text"] == "fixed raw text"
+
+    upload_dir = Path(app1.app.config["UPLOAD_FOLDER"])
+    assert list(upload_dir.iterdir()) == []
+
+
+def test_api_ocr_requires_file(client):
+    response = client.post("/api/ocr", data={}, content_type="multipart/form-data")
+
+    assert response.status_code == 400
+    assert response.get_json()["error"] == "No file provided"
+
+
 def test_health_reports_engine_status(client):
     response = client.get("/health")
 
@@ -72,6 +97,19 @@ def test_health_reports_engine_status(client):
     data = response.get_json()
     assert data["status"] == "healthy"
     assert set(data["engines"]) == {"tesseract", "easyocr", "trocr"}
+
+
+def test_index_shows_missing_engine_status(client, monkeypatch):
+    monkeypatch.setattr(
+        app1.ocr_engine,
+        "available_summary",
+        lambda: {"tesseract": False, "easyocr": False, "trocr": False},
+    )
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert response.data.count(b"Missing") == 3
 
 
 def test_download_blocks_path_traversal(client):

@@ -1,0 +1,23 @@
+import logging
+import os
+
+from flask import Flask
+
+from .config import apply_config
+from .ocr import MultiOCREngine
+from .web import register_routes
+
+
+def create_app():
+    logging.basicConfig(level=logging.INFO)
+    package_dir = os.path.dirname(__file__)
+    app = Flask(
+        __name__,
+        template_folder=os.path.join(package_dir, "..", "templates"),
+        static_folder=os.path.join(package_dir, "..", "static"),
+    )
+    apply_config(app)
+    os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
+    app.extensions["ocr_engine"] = MultiOCREngine()
+    register_routes(app)
+    return app

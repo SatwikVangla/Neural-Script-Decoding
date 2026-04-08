@@ -13,7 +13,18 @@ Neural Script Decoding is a Flask application for extracting text from handwritt
 - Local Ollama correction pass before PDF generation
 - Safer download handling and cleanup of temporary upload artifacts
 - Responsive frontend for upload, review, and export flows
-- Baseline automated tests for upload, health, and download behavior
+- Automated tests for upload, API, health, and download behavior
+- GitHub Actions CI and a Gunicorn/Docker deployment path
+
+## Code Layout
+
+- `app.py`: stable public entrypoint
+- `app1.py`: compatibility entrypoint exposing the same Flask app object
+- `neural_script_decoding/app_factory.py`: Flask application construction
+- `neural_script_decoding/web.py`: route handlers
+- `neural_script_decoding/ocr.py`: OCR engine orchestration and dependency-aware initialization
+- `neural_script_decoding/services.py`: LLM correction and PDF generation
+- `neural_script_decoding/files.py`: upload path and cleanup helpers
 
 ## Requirements
 
@@ -74,6 +85,27 @@ pytest
 ```
 
 The tests use mocked OCR and PDF generation, so they do not require model downloads or a running Ollama instance.
+
+## Continuous Integration
+
+GitHub Actions runs the test suite on Python 3.11 and 3.12 through [`.github/workflows/ci.yml`](/home/satwik/Neural-Script-Decodin/.github/workflows/ci.yml).
+
+## Deployment
+
+Gunicorn entrypoint:
+
+```bash
+gunicorn -c gunicorn.conf.py wsgi:application
+```
+
+Docker build and run:
+
+```bash
+docker build -t neural-script-decoding .
+docker run --rm -p 5000:5000 neural-script-decoding
+```
+
+The container installs Tesseract. Optional EasyOCR and TrOCR dependencies are still excluded by default; add `requirements-ocr.txt` to the image if you want those engines available in deployment.
 
 ## Notes
 
