@@ -22,6 +22,7 @@ def build_upload_paths(upload_folder, original_name):
         "preprocessed_path": f"{stem}_preprocessed{ext}",
         "pdf_path": f"{file_path}.pdf",
         "preview_path": f"{stem}_preview{ext}",
+        "overlay_path": f"{stem}_overlay{ext}",
     }
 
 

@@ -32,6 +32,17 @@ def client(tmp_path, monkeypatch):
             {"engine": "easyocr", "text": "rich raw text output", "confidence": 85.0},
         ],
     )
+    def fake_overlay(_source, output):
+        Path(output).write_bytes(b"overlay")
+        return {
+            "overlay_path": output,
+            "regions": [
+                {"text": "rich", "confidence": 92.0, "x": 10, "y": 10, "w": 40, "h": 20},
+                {"text": "text", "confidence": 88.0, "x": 60, "y": 10, "w": 40, "h": 20},
+            ],
+        }
+
+    monkeypatch.setattr(app1.ocr_engine, "create_tesseract_overlay", fake_overlay)
     monkeypatch.setattr(
         app1.ocr_engine,
         "available_summary",
@@ -48,6 +59,7 @@ def client(tmp_path, monkeypatch):
         Path(output_path).write_text(text, encoding="utf-8")
 
     monkeypatch.setattr(web, "generate_pdf", fake_pdf)
+    monkeypatch.setattr(web, "persist_preview", lambda source, dest: Path(dest).write_bytes(Path(source).read_bytes()))
 
     with app1.app.test_client() as test_client:
         yield test_client
@@ -76,6 +88,7 @@ def test_upload_generates_pdf_and_cleans_temp_files(client):
     assert b"Download JSON" in response.data
     assert b"Open Saved Run" in response.data
     assert b"/preview/" in response.data
+    assert b"Detected words and confidence" in response.data
 
     upload_dir = Path(app1.app.config["UPLOAD_FOLDER"])
     files = sorted(path.name for path in upload_dir.iterdir())
@@ -98,6 +111,7 @@ def test_api_ocr_returns_json_and_cleans_temp_files(client):
     assert payload["system"]["engines"]["tesseract"]["ready"] is True
     assert payload["selected_engine"] == "easyocr"
     assert "/preview/" in payload["preview_url"]
+    assert payload["regions"][0]["text"] == "rich"
 
     upload_dir = Path(app1.app.config["UPLOAD_FOLDER"])
     remaining = sorted(path.name for path in upload_dir.iterdir())
@@ -135,6 +149,7 @@ def test_history_pages_render_saved_runs(client):
     assert b"Stored Run" in detail.data
     assert b"rich raw text output" in detail.data
     assert b"/preview/" in detail.data
+    assert b"Detected words and confidence" in detail.data
 
 
 def test_history_filters_and_delete(client):

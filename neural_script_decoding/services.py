@@ -82,7 +82,7 @@ def generate_pdf(text, output_path, font_path):
     logger.info("PDF generated: %s", output_path)
 
 
-def build_result_payload(*, filename, original_name, ocr_results, raw_text, corrected_text, system_status):
+def build_result_payload(*, filename, original_name, ocr_results, raw_text, corrected_text, system_status, regions=None):
     selected_engine = None
     for result in ocr_results:
         if result.get("text") == raw_text and "error" not in result:
@@ -96,6 +96,7 @@ def build_result_payload(*, filename, original_name, ocr_results, raw_text, corr
         "ocr_results": ocr_results,
         "raw_text": raw_text,
         "corrected_text": corrected_text,
+        "regions": regions or [],
         "system": system_status,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }

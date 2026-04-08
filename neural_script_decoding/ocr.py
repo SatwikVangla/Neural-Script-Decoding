@@ -170,6 +170,73 @@ class MultiOCREngine:
             logger.error("Tesseract OCR failed: %s", exc)
             return {"text": "", "confidence": 0, "engine": "tesseract", "error": str(exc)}
 
+    def extract_tesseract_regions(self, image_path):
+        if not self.engines["tesseract"]:
+            return []
+
+        config = r"--oem 3 --psm 6 -l eng"
+        data = pytesseract.image_to_data(Image.open(image_path), config=config, output_type=pytesseract.Output.DICT)
+        regions = []
+        total = len(data.get("text", []))
+        for index in range(total):
+            text = (data["text"][index] or "").strip()
+            try:
+                confidence = float(data["conf"][index])
+            except (TypeError, ValueError):
+                confidence = -1
+            if not text or confidence <= 0:
+                continue
+            regions.append(
+                {
+                    "text": text,
+                    "confidence": confidence,
+                    "x": int(data["left"][index]),
+                    "y": int(data["top"][index]),
+                    "w": int(data["width"][index]),
+                    "h": int(data["height"][index]),
+                }
+            )
+        return regions
+
+    def create_tesseract_overlay(self, image_path, overlay_path):
+        if not self.engines["tesseract"] or not dependency_available(cv2):
+            return {"overlay_path": None, "regions": []}
+
+        regions = self.extract_tesseract_regions(image_path)
+        if not regions:
+            return {"overlay_path": None, "regions": []}
+
+        image = cv2.imread(image_path)
+        if image is None:
+            return {"overlay_path": None, "regions": []}
+
+        for region in regions:
+            confidence = region["confidence"]
+            if confidence >= 85:
+                color = (40, 140, 60)
+            elif confidence >= 60:
+                color = (20, 180, 220)
+            else:
+                color = (40, 60, 220)
+
+            top_left = (region["x"], region["y"])
+            bottom_right = (region["x"] + region["w"], region["y"] + region["h"])
+            cv2.rectangle(image, top_left, bottom_right, color, 2)
+            label = f'{region["text"]} {confidence:.0f}%'
+            cv2.putText(
+                image,
+                label,
+                (region["x"], max(region["y"] - 8, 20)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.45,
+                color,
+                1,
+                cv2.LINE_AA,
+            )
+
+        cv2.imwrite(overlay_path, image)
+        return {"overlay_path": overlay_path, "regions": regions}
+
     def easyocr_ocr(self, image_path):
         try:
             if self.engines["easyocr"] is None:

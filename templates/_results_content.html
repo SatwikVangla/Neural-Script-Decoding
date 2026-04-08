@@ -7,6 +7,11 @@
         <img src="{{ preview_url }}" alt="Uploaded handwriting preview" class="preview-image">
       </div>
     {% endif %}
+    {% if overlay_url %}
+      <div class="preview-frame">
+        <img src="{{ overlay_url }}" alt="OCR overlay preview" class="preview-image">
+      </div>
+    {% endif %}
 
     <div class="stats-grid">
       <div class="stat-card stagger">
@@ -105,6 +110,23 @@
           <span>{{ system.get('ollama', {}).get('reason', 'Unknown') }}</span>
         </div>
       </div>
+
+      {% if regions %}
+        <div class="panel" style="margin-top: 24px;">
+          <div class="panel-inner">
+            <p class="section-label">OCR Regions</p>
+            <h2 class="section-title">Detected words and confidence</h2>
+            <div class="region-list">
+              {% for region in regions[:24] %}
+                <div class="region-chip">
+                  <strong>{{ region.text }}</strong>
+                  <span>{{ "%.0f"|format(region.confidence) }}%</span>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      {% endif %}
 
       <div class="actions-row" style="margin-top: 24px;">
         {% if pdf_path %}
