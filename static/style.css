@@ -240,6 +240,10 @@ a {
     align-items: center;
 }
 
+.inline-form {
+    margin: 0;
+}
+
 .button,
 .ghost-button,
 .link-button {

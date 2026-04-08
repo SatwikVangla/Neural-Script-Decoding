@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 
 try:
     import cv2
@@ -212,19 +213,50 @@ class MultiOCREngine:
         results.append(self.trocr_ocr(image_path))
         return results
 
-    def combine_results(self, results):
-        valid_results = [result for result in results if result["text"] and "error" not in result]
+    def score_result(self, result):
+        if not result.get("text") or "error" in result:
+            return float("-inf")
+
+        text = result["text"].strip()
+        confidence = float(result.get("confidence") or 0)
+        words = len(text.split())
+        alnum_chars = len(re.findall(r"[A-Za-z0-9]", text))
+        penalties = 0
+
+        if len(text) < 4:
+            penalties += 20
+        if alnum_chars == 0:
+            penalties += 50
+
+        # Prefer engines with better handwritten-text priors when results are close.
+        engine_bonus = {
+            "trocr": 12,
+            "easyocr": 6,
+            "tesseract": 0,
+        }.get(result.get("engine"), 0)
+
+        richness_bonus = min(words * 2.5, 15) + min(alnum_chars * 0.2, 10)
+        return confidence + engine_bonus + richness_bonus - penalties
+
+    def choose_best_result(self, results):
+        valid_results = [result for result in results if result.get("text") and "error" not in result]
         if not valid_results:
+            return None
+
+        ranked_results = sorted(valid_results, key=self.score_result, reverse=True)
+        best_result = ranked_results[0]
+        logger.info(
+            "Selected %s result (confidence: %.2f, score: %.2f)",
+            best_result["engine"],
+            best_result["confidence"],
+            self.score_result(best_result),
+        )
+        return best_result
+
+    def combine_results(self, results):
+        best_result = self.choose_best_result(results)
+        if not best_result:
             return "No text could be extracted from the image."
-
-        valid_results.sort(key=lambda item: item["confidence"], reverse=True)
-        trocr_result = next((item for item in valid_results if item["engine"] == "trocr"), None)
-        if trocr_result and trocr_result["confidence"] > 70:
-            logger.info("Using TrOCR result (handwriting optimized)")
-            return trocr_result["text"]
-
-        best_result = valid_results[0]
-        logger.info("Using %s result (confidence: %.2f)", best_result["engine"], best_result["confidence"])
         return best_result["text"]
 
     def available_summary(self):

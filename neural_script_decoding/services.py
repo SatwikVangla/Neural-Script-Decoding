@@ -1,8 +1,10 @@
 import logging
 import os
 import textwrap
+from datetime import datetime, timezone
 
 import requests
+from flask import Response
 
 try:
     from fpdf import FPDF
@@ -78,3 +80,31 @@ def generate_pdf(text, output_path, font_path):
 
     pdf.output(output_path)
     logger.info("PDF generated: %s", output_path)
+
+
+def build_result_payload(*, filename, ocr_results, raw_text, corrected_text, system_status):
+    selected_engine = None
+    for result in ocr_results:
+        if result.get("text") == raw_text and "error" not in result:
+            selected_engine = result.get("engine")
+            break
+
+    return {
+        "file": filename,
+        "selected_engine": selected_engine,
+        "ocr_results": ocr_results,
+        "raw_text": raw_text,
+        "corrected_text": corrected_text,
+        "system": system_status,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def json_download_response(payload, download_name):
+    import json
+
+    return Response(
+        json.dumps(payload, indent=2, ensure_ascii=False),
+        mimetype="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{download_name}"'},
+    )

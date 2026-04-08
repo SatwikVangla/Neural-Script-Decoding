@@ -127,6 +127,10 @@
 
           <div class="actions-row" style="margin-top: 24px;">
             <a class="button" href="{{ url_for('download_pdf', filename=pdf_path.split('/')[-1]) }}">Download PDF</a>
+            <form method="post" action="{{ url_for('download_json') }}" class="inline-form">
+              <input type="hidden" name="payload" value='{{ result_payload|tojson }}'>
+              <button class="ghost-button" type="submit">Download JSON</button>
+            </form>
             <a class="ghost-button" href="{{ url_for('index') }}">Process Another Image</a>
             <button class="link-button" type="button" data-copy-target="{{ corrected_text|e }}">Copy Corrected Text</button>
           </div>
@@ -136,6 +140,31 @@
   </main>
 
   <script>
+    document.querySelector('form[action$="download-json"]')?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const payload = form.querySelector('input[name="payload"]').value;
+      const response = await fetch(form.action, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload
+      });
+
+      if (!response.ok) {
+        return;
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'ocr-result.json';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    });
+
     document.querySelector('[data-copy-target]')?.addEventListener('click', async (event) => {
       const button = event.currentTarget;
       await navigator.clipboard.writeText(button.getAttribute('data-copy-target'));

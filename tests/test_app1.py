@@ -23,11 +23,10 @@ def client(tmp_path, monkeypatch):
         app1.ocr_engine,
         "process_with_all_engines",
         lambda _path: [
-            {"engine": "tesseract", "text": "raw text", "confidence": 91.2},
-            {"engine": "easyocr", "text": "raw text", "confidence": 85.0},
+            {"engine": "tesseract", "text": "ok", "confidence": 91.2},
+            {"engine": "easyocr", "text": "rich raw text output", "confidence": 85.0},
         ],
     )
-    monkeypatch.setattr(app1.ocr_engine, "combine_results", lambda results: results[0]["text"])
     monkeypatch.setattr(
         app1.ocr_engine,
         "available_summary",
@@ -69,6 +68,7 @@ def test_upload_generates_pdf_and_cleans_temp_files(client):
 
     assert response.status_code == 200
     assert b"OCR result board" in response.data
+    assert b"Download JSON" in response.data
 
     upload_dir = Path(app1.app.config["UPLOAD_FOLDER"])
     files = sorted(path.name for path in upload_dir.iterdir())
@@ -86,12 +86,24 @@ def test_api_ocr_returns_json_and_cleans_temp_files(client):
     assert response.status_code == 200
     payload = response.get_json()
     assert payload["success"] is True
-    assert payload["raw_text"] == "raw text"
-    assert payload["corrected_text"] == "fixed raw text"
+    assert payload["raw_text"] == "rich raw text output"
+    assert payload["corrected_text"] == "fixed rich raw text output"
     assert payload["system"]["engines"]["tesseract"]["ready"] is True
+    assert payload["selected_engine"] == "easyocr"
 
     upload_dir = Path(app1.app.config["UPLOAD_FOLDER"])
     assert list(upload_dir.iterdir()) == []
+
+
+def test_download_json_returns_attachment(client):
+    response = client.post(
+        "/download-json",
+        json={"file": "sample.jpg", "raw_text": "a", "corrected_text": "b", "ocr_results": [], "system": {}},
+    )
+
+    assert response.status_code == 200
+    assert response.mimetype == "application/json"
+    assert "attachment; filename=\"sample.json\"" in response.headers["Content-Disposition"]
 
 
 def test_api_ocr_requires_file(client):

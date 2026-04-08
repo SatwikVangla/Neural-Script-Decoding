@@ -5,7 +5,7 @@ from datetime import datetime
 from flask import abort, current_app, flash, jsonify, redirect, render_template, request, send_from_directory, url_for
 
 from .files import allowed_file, build_upload_paths, cleanup_files
-from .services import correct_text_with_llm, generate_pdf, ollama_status
+from .services import build_result_payload, correct_text_with_llm, generate_pdf, json_download_response, ollama_status
 
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,13 @@ def register_routes(app):
                 corrected_text = correct_text_with_llm(raw_text, current_app.config)
                 generate_pdf(corrected_text, paths["pdf_path"], current_app.config["PDF_FONT_PATH"])
                 cleanup_files(paths["file_path"], paths["preprocessed_path"])
+                result_payload = build_result_payload(
+                    filename=paths["filename"],
+                    ocr_results=ocr_results,
+                    raw_text=raw_text,
+                    corrected_text=corrected_text,
+                    system_status=_system_status(),
+                )
                 return render_template(
                     "results.html",
                     ocr_results=ocr_results,
@@ -45,6 +52,7 @@ def register_routes(app):
                     corrected_text=corrected_text,
                     pdf_path=paths["pdf_path"],
                     system_status=_system_status(),
+                    result_payload=result_payload,
                 )
             except Exception as exc:
                 logger.error("Processing failed: %s", exc)
@@ -84,13 +92,17 @@ def register_routes(app):
             ocr_results = _ocr_engine().process_with_all_engines(paths["file_path"])
             combined_text = _ocr_engine().combine_results(ocr_results)
             corrected_text = correct_text_with_llm(combined_text, current_app.config)
+            payload = build_result_payload(
+                filename=paths["filename"],
+                ocr_results=ocr_results,
+                raw_text=combined_text,
+                corrected_text=corrected_text,
+                system_status=_system_status(),
+            )
             return jsonify(
                 {
                     "success": True,
-                    "ocr_results": ocr_results,
-                    "raw_text": combined_text,
-                    "corrected_text": corrected_text,
-                    "system": _system_status(),
+                    **payload,
                 }
             )
         except Exception as exc:
@@ -111,6 +123,17 @@ def register_routes(app):
                 "timestamp": datetime.now().isoformat(),
             }
         )
+
+    @app.route("/download-json", methods=["POST"])
+    def download_json():
+        payload = request.get_json(silent=True)
+        if not payload:
+            return jsonify({"error": "No result payload provided"}), 400
+
+        filename = payload.get("file", "ocr-result")
+        stem = os.path.splitext(filename)[0] or "ocr-result"
+        logger.info("Serving structured OCR export for %s", stem)
+        return json_download_response(payload, f"{stem}.json")
 
 
 def _ocr_engine():
