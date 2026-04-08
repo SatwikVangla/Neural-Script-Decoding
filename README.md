@@ -4,11 +4,7 @@ Neural Script Decoding is a Flask application for extracting text from handwritt
 
 ## Project Status
 
-`app1.py` is the primary application.
-
-- `app1.py`: multi-engine OCR flow with result comparison, API endpoint, and health checks
-- `app.py`: lightweight prototype using a single OCR path
-- `app2.py`: TrOCR-focused prototype
+`app.py` is the canonical entrypoint and delegates to `app1.py`, which contains the main application logic.
 
 ## Features
 
@@ -63,10 +59,10 @@ export OLLAMA_MODEL="mistral"
 
 ## Running the App
 
-Start the primary app:
+Start the application:
 
 ```bash
-python3 app1.py
+python3 app.py
 ```
 
 Then open `http://127.0.0.1:5000`.
@@ -83,4 +79,5 @@ The tests use mocked OCR and PDF generation, so they do not require model downlo
 
 - `static/uploads/` is intentionally gitignored except for `.gitkeep`.
 - If only some OCR dependencies are installed, the UI and `/health` endpoint will report which engines are currently available.
-- The repository currently keeps the prototype apps for reference, but new work should target `app1.py`.
+- `app.py` is the stable entrypoint for local runs and deployment wrappers.
+- `app1.py` contains the actual application implementation.

@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+import app
 import app1
 
 
@@ -42,6 +43,10 @@ def test_index_renders(client):
 
     assert response.status_code == 200
     assert b"Neural Script Decoding" in response.data
+
+
+def test_app_entrypoint_exports_same_flask_app():
+    assert app.app is app1.app
 
 
 def test_upload_generates_pdf_and_cleans_temp_files(client):
