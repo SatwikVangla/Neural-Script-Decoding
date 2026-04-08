@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory, jsonify, abort
 import os
 import uuid
 import cv2
@@ -21,7 +21,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-app.secret_key = "handwriting_recognition_secret_key"
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(32))
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
@@ -29,11 +29,19 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 class MultiOCREngine:
     def __init__(self):
-        self.engines = {}
-        self.initialize_engines()
+        self.engines = {
+            'easyocr': None,
+            'trocr_processor': None,
+            'trocr_model': None,
+            'tesseract': True,
+        }
+        self.initialized = False
     
     def initialize_engines(self):
         """Initialize all OCR engines"""
+        if self.initialized:
+            return
+
         try:
             # Initialize EasyOCR
             self.engines['easyocr'] = easyocr.Reader(['en'], gpu=torch.cuda.is_available())
@@ -55,6 +63,7 @@ class MultiOCREngine:
         # Tesseract is always available (assumed to be installed)
         self.engines['tesseract'] = True
         logger.info("Tesseract OCR ready")
+        self.initialized = True
 
     def tesseract_ocr(self, image_path, preprocessed_path=None):
         """Tesseract OCR with preprocessing"""
@@ -66,7 +75,8 @@ class MultiOCREngine:
             img = Image.open(preprocessed_path)
             text = pytesseract.image_to_string(img, config=config)
             confidence = pytesseract.image_to_data(img, config=config, output_type=pytesseract.Output.DICT)
-            avg_confidence = np.mean([int(conf) for conf in confidence['conf'] if int(conf) > 0])
+            scores = [float(conf) for conf in confidence['conf'] if float(conf) > 0]
+            avg_confidence = np.mean(scores) if scores else 0
             
             return {
                 'text': text.strip(),
@@ -146,7 +156,8 @@ class MultiOCREngine:
             processed = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
             
             # Save preprocessed image
-            preprocessed_path = image_path.replace('.', '_preprocessed.')
+            root, ext = os.path.splitext(image_path)
+            preprocessed_path = f"{root}_preprocessed{ext}"
             cv2.imwrite(preprocessed_path, processed)
             
             return preprocessed_path
@@ -156,6 +167,7 @@ class MultiOCREngine:
 
     def process_with_all_engines(self, image_path):
         """Process image with all available OCR engines"""
+        self.initialize_engines()
         results = []
         preprocessed_path = None
         
@@ -202,6 +214,11 @@ class MultiOCREngine:
 
 # Initialize the multi-OCR engine
 ocr_engine = MultiOCREngine()
+
+def cleanup_files(*paths):
+    for path in paths:
+        if path and os.path.exists(path):
+            os.remove(path)
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in {'png', 'jpg', 'jpeg', 'gif', 'bmp'}
@@ -269,16 +286,17 @@ def index():
 def upload_file():
     if 'file' not in request.files:
         flash('No file part')
-        return redirect(request.url)
+        return redirect(url_for('index'))
 
     file = request.files['file']
     if file.filename == '':
         flash('No selected file')
-        return redirect(request.url)
+        return redirect(url_for('index'))
 
     if file and allowed_file(file.filename):
         filename = str(uuid.uuid4()) + os.path.splitext(file.filename)[1]
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        preprocessed_path = os.path.splitext(file_path)[0] + "_preprocessed" + os.path.splitext(file_path)[1]
         file.save(file_path)
 
         try:
@@ -303,22 +321,27 @@ def upload_file():
                 'corrected_text': corrected_text,
                 'pdf_path': output_pdf_path
             }
-            
+            cleanup_files(file_path, preprocessed_path)
             return render_template("results.html", **results_data)
             
         except Exception as e:
             logger.error(f"Processing failed: {e}")
             flash(f"Error processing image: {str(e)}")
-            return redirect(request.url)
+            cleanup_files(file_path, preprocessed_path)
+            return redirect(url_for('index'))
 
     flash('Allowed file types are png, jpg, jpeg, gif, bmp')
-    return redirect(request.url)
+    return redirect(url_for('index'))
 
 @app.route('/download/<filename>')
 def download_pdf(filename):
-    file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    safe_name = os.path.basename(filename)
+    if safe_name != filename:
+        abort(404)
+
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], safe_name)
     if os.path.exists(file_path):
-        return send_file(file_path, as_attachment=True)
+        return send_from_directory(app.config['UPLOAD_FOLDER'], safe_name, as_attachment=True)
     else:
         flash('File not found')
         return redirect(url_for('index'))
@@ -336,6 +359,7 @@ def api_ocr():
     try:
         filename = str(uuid.uuid4()) + os.path.splitext(file.filename)[1]
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        preprocessed_path = os.path.splitext(file_path)[0] + "_preprocessed" + os.path.splitext(file_path)[1]
         file.save(file_path)
         
         # Process with all engines
@@ -344,7 +368,7 @@ def api_ocr():
         corrected_text = correct_text_with_llm(combined_text)
         
         # Clean up
-        os.remove(file_path)
+        cleanup_files(file_path, preprocessed_path)
         
         return jsonify({
             'success': True,
@@ -355,12 +379,15 @@ def api_ocr():
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    finally:
+        cleanup_files(file_path, preprocessed_path)
 
 @app.route('/health')
 def health_check():
     """Health check endpoint"""
     return jsonify({
         'status': 'healthy',
+        'initialized': ocr_engine.initialized,
         'engines': {
             'tesseract': True,
             'easyocr': ocr_engine.engines['easyocr'] is not None,

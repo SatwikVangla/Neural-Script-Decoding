@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, send_file
+from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory, abort
 import os
 import uuid
 from PIL import Image
@@ -9,7 +9,7 @@ import textwrap
 import requests
 
 app = Flask(__name__)
-app.secret_key = "handwriting_recognition_secret_key"
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(32))
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
@@ -17,11 +17,16 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # Load TrOCR
 print("Loading TrOCR...")
-processor = TrOCRProcessor.from_pretrained("microsoft/trocr-base-stage1")
-model = VisionEncoderDecoderModel.from_pretrained("microsoft/trocr-base-stage1")
+processor = TrOCRProcessor.from_pretrained("microsoft/trocr-base-handwritten")
+model = VisionEncoderDecoderModel.from_pretrained("microsoft/trocr-base-handwritten")
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device)
 print("TrOCR loaded.")
+
+def cleanup_files(*paths):
+    for path in paths:
+        if path and os.path.exists(path):
+            os.remove(path)
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in {'png', 'jpg', 'jpeg'}
@@ -46,7 +51,8 @@ def correct_text_with_llm(text):
     prompt = f"Correct the following sentence for spelling and grammar based on context and give me only the corrected paragraph:\n{text}"
     try:
         res = requests.post('http://localhost:11434/api/generate',
-                            json={"model": "mistral", "prompt": prompt, "stream": False})
+                            json={"model": "mistral", "prompt": prompt, "stream": False},
+                            timeout=30)
         if res.status_code == 200:
             return res.json()['response'].strip()
         return "[Error: LLM response failed]"
@@ -85,12 +91,12 @@ def upload_file():
 
     if 'file' not in request.files:
         flash("No file part")
-        return redirect(request.url)
+        return redirect(url_for('index'))
 
     file = request.files['file']
     if file.filename == '':
         flash("No selected file")
-        return redirect(request.url)
+        return redirect(url_for('index'))
 
     if file and allowed_file(file.filename):
         filename = str(uuid.uuid4()) + os.path.splitext(file.filename)[1]
@@ -111,20 +117,24 @@ def upload_file():
 
             output_pdf_path = filepath + ".pdf"
             generate_pdf(corrected_text, output_pdf_path)
+            cleanup_files(filepath)
             return render_template("download.html", pdf_path=output_pdf_path)
 
         except Exception as e:
             print(f"❌ Processing error: {e}")
             flash(f"Error: {e}")
-            return redirect(request.url)
+            cleanup_files(filepath)
+            return redirect(url_for('index'))
 
     flash("Allowed file types: png, jpg, jpeg")
-    return redirect(request.url)
+    return redirect(url_for('index'))
 
 @app.route('/download/<filename>')
 def download_pdf(filename):
-    return send_file(os.path.join(app.config['UPLOAD_FOLDER'], filename), as_attachment=True)
+    safe_name = os.path.basename(filename)
+    if safe_name != filename:
+        abort(404)
+    return send_from_directory(app.config['UPLOAD_FOLDER'], safe_name, as_attachment=True)
 
 if __name__ == "__main__":
     app.run(debug=True)
-
