@@ -6,7 +6,7 @@ from flask import abort, current_app, flash, jsonify, redirect, render_template,
 
 from .files import allowed_file, build_upload_paths, cleanup_files
 from .services import build_result_payload, correct_text_with_llm, generate_pdf, json_download_response, ollama_status
-from .storage import get_run, list_runs, save_run
+from .storage import delete_run, get_run, list_runs, prune_old_runs, save_run
 
 
 logger = logging.getLogger(__name__)
@@ -19,7 +19,20 @@ def register_routes(app):
 
     @app.route("/history")
     def history():
-        return render_template("history.html", runs=list_runs(current_app.config["DATABASE_PATH"]), system_status=_system_status())
+        query = request.args.get("q", "").strip()
+        engine = request.args.get("engine", "").strip() or None
+        runs = list_runs(
+            current_app.config["DATABASE_PATH"],
+            query=query or None,
+            engine=engine,
+        )
+        return render_template(
+            "history.html",
+            runs=runs,
+            system_status=_system_status(),
+            search_query=query,
+            selected_engine=engine or "",
+        )
 
     @app.route("/history/<int:run_id>")
     def history_detail(run_id):
@@ -37,6 +50,17 @@ def register_routes(app):
             system_status=payload.get("system", _system_status()),
             result_payload=payload,
         )
+
+    @app.route("/history/<int:run_id>/delete", methods=["POST"])
+    def delete_history_run(run_id):
+        deleted = delete_run(current_app.config["DATABASE_PATH"], run_id)
+        if deleted is None:
+            abort(404)
+        if deleted.get("pdf_file_name"):
+            cleanup_files(os.path.join(current_app.config["UPLOAD_FOLDER"], deleted["pdf_file_name"]))
+        flash("Saved run deleted")
+        logger.info("Deleted saved OCR run %s", run_id)
+        return redirect(url_for("history"))
 
     @app.route("/upload", methods=["POST"])
     def upload_file():
@@ -69,6 +93,7 @@ def register_routes(app):
                     system_status=_system_status(),
                 )
                 run_id = save_run(current_app.config["DATABASE_PATH"], result_payload, paths["pdf_path"])
+                _prune_saved_runs()
                 return render_template(
                     "results.html",
                     ocr_results=ocr_results,
@@ -126,6 +151,7 @@ def register_routes(app):
                 system_status=_system_status(),
             )
             run_id = save_run(current_app.config["DATABASE_PATH"], payload, paths["pdf_path"])
+            _prune_saved_runs()
             return jsonify(
                 {
                     "success": True,
@@ -174,3 +200,12 @@ def _system_status():
         "engines": _ocr_engine().available_summary(),
         "ollama": ollama_status(current_app.config),
     }
+
+
+def _prune_saved_runs():
+    deleted = prune_old_runs(current_app.config["DATABASE_PATH"], current_app.config["MAX_SAVED_RUNS"])
+    for run in deleted:
+        if run.get("pdf_file_name"):
+            cleanup_files(os.path.join(current_app.config["UPLOAD_FOLDER"], run["pdf_file_name"]))
+    if deleted:
+        logger.info("Pruned %s saved OCR runs", len(deleted))

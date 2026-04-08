@@ -21,21 +21,49 @@
 
     <section class="panel stagger" style="margin-top: 24px;">
       <div class="panel-inner">
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            <div class="flash-stack">
+              {% for message in messages %}
+                <div class="flash">{{ message }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
         <p class="section-label">Recent Runs</p>
         <h2 class="section-title">Stored outputs</h2>
+        <form class="history-filters" method="get" action="{{ url_for('history') }}">
+          <input class="history-input" type="search" name="q" value="{{ search_query or '' }}" placeholder="Search file names or extracted text">
+          <select class="history-select" name="engine">
+            <option value="">All engines</option>
+            <option value="tesseract" {% if selected_engine == 'tesseract' %}selected{% endif %}>Tesseract</option>
+            <option value="easyocr" {% if selected_engine == 'easyocr' %}selected{% endif %}>EasyOCR</option>
+            <option value="trocr" {% if selected_engine == 'trocr' %}selected{% endif %}>TrOCR</option>
+          </select>
+          <button class="ghost-button" type="submit">Filter</button>
+          <a class="link-button" href="{{ url_for('history') }}">Clear</a>
+        </form>
         {% if runs %}
           <div class="history-list">
             {% for run in runs %}
-              <a class="history-item stagger" href="{{ url_for('history_detail', run_id=run.id) }}">
+              <div class="history-item stagger">
                 <div>
-                  <strong>{{ run.original_file_name or run.file_name }}</strong>
+                  <a class="history-link" href="{{ url_for('history_detail', run_id=run.id) }}">
+                    <strong>{{ run.original_file_name or run.file_name }}</strong>
+                  </a>
                   <p class="helper">Selected engine: {{ run.selected_engine or 'unknown' }}</p>
                 </div>
                 <div class="history-meta">
                   <span>{{ run.created_at }}</span>
                   <span>{{ (run.corrected_text or '')[:120] }}{% if (run.corrected_text or '')|length > 120 %}...{% endif %}</span>
+                  <div class="history-actions">
+                    <a class="ghost-button" href="{{ url_for('history_detail', run_id=run.id) }}">Open</a>
+                    <form method="post" action="{{ url_for('delete_history_run', run_id=run.id) }}" class="inline-form">
+                      <button class="ghost-button danger-button" type="submit">Delete</button>
+                    </form>
+                  </div>
                 </div>
-              </a>
+              </div>
             {% endfor %}
           </div>
         {% else %}

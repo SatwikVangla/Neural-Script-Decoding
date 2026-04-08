@@ -13,6 +13,7 @@ def apply_config(app):
     app.config["APP_PORT"] = int(os.environ.get("APP_PORT", "5000"))
     app.config["APP_DEBUG"] = os.environ.get("APP_DEBUG", "false").lower() in {"1", "true", "yes", "on"}
     app.config["LOG_LEVEL"] = os.environ.get("LOG_LEVEL", "INFO").upper()
+    app.config["MAX_SAVED_RUNS"] = int(os.environ.get("MAX_SAVED_RUNS", "100"))
     app.config["ENABLE_TESSERACT"] = os.environ.get("ENABLE_TESSERACT", "true").lower() in {"1", "true", "yes", "on"}
     app.config["ENABLE_EASYOCR"] = os.environ.get("ENABLE_EASYOCR", "false").lower() in {"1", "true", "yes", "on"}
     app.config["ENABLE_TROCR"] = os.environ.get("ENABLE_TROCR", "false").lower() in {"1", "true", "yes", "on"}

@@ -19,6 +19,7 @@ def client(tmp_path, monkeypatch):
         TESTING=True,
         UPLOAD_FOLDER=str(upload_dir),
         DATABASE_PATH=str(database_path),
+        MAX_SAVED_RUNS=100,
         WTF_CSRF_ENABLED=False,
     )
     init_db(app1.app.config["DATABASE_PATH"])
@@ -129,6 +130,49 @@ def test_history_pages_render_saved_runs(client):
     assert detail.status_code == 200
     assert b"Stored Run" in detail.data
     assert b"rich raw text output" in detail.data
+
+
+def test_history_filters_and_delete(client):
+    client.post(
+        "/upload",
+        data={"file": (BytesIO(b"fake-image-bytes"), "note.jpg")},
+        content_type="multipart/form-data",
+    )
+    client.post(
+        "/upload",
+        data={"file": (BytesIO(b"fake-image-bytes"), "other.jpg")},
+        content_type="multipart/form-data",
+    )
+
+    filtered = client.get("/history?q=other&engine=easyocr")
+    assert filtered.status_code == 200
+    assert b"other.jpg" in filtered.data
+    assert b"note.jpg" not in filtered.data
+
+    deleted = client.post("/history/1/delete", follow_redirects=True)
+    assert deleted.status_code == 200
+    assert b"Saved run deleted" in deleted.data
+    assert client.get("/history/1").status_code == 404
+
+
+def test_history_prunes_old_runs(client):
+    app1.app.config["MAX_SAVED_RUNS"] = 1
+
+    client.post(
+        "/upload",
+        data={"file": (BytesIO(b"fake-image-bytes"), "first.jpg")},
+        content_type="multipart/form-data",
+    )
+    client.post(
+        "/upload",
+        data={"file": (BytesIO(b"fake-image-bytes"), "second.jpg")},
+        content_type="multipart/form-data",
+    )
+
+    history = client.get("/history")
+    assert history.status_code == 200
+    assert b"second.jpg" in history.data
+    assert b"first.jpg" not in history.data
 
 
 def test_api_ocr_requires_file(client):

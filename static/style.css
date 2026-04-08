@@ -244,6 +244,29 @@ a {
     margin: 0;
 }
 
+.history-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    margin-top: 24px;
+}
+
+.history-input,
+.history-select {
+    min-height: 48px;
+    padding: 0 16px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.82);
+    color: var(--ink);
+    font: inherit;
+}
+
+.history-input {
+    flex: 1 1 280px;
+}
+
 .history-list {
     display: grid;
     gap: 14px;
@@ -263,6 +286,10 @@ a {
     transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
+.history-link {
+    text-decoration: none;
+}
+
 .history-item:hover {
     transform: translateY(-1px);
     box-shadow: 0 16px 26px rgba(25, 37, 50, 0.08);
@@ -274,6 +301,18 @@ a {
     color: var(--muted);
     font-size: 0.92rem;
     line-height: 1.6;
+}
+
+.history-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 8px;
+}
+
+.danger-button {
+    border-color: rgba(182, 61, 61, 0.18);
+    color: var(--danger);
 }
 
 .button,
