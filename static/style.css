@@ -275,7 +275,7 @@ a {
 
 .history-item {
     display: grid;
-    grid-template-columns: 1fr minmax(260px, 0.8fr);
+    grid-template-columns: 120px 1fr minmax(260px, 0.8fr);
     gap: 18px;
     align-items: start;
     padding: 18px;
@@ -288,6 +288,35 @@ a {
 
 .history-link {
     text-decoration: none;
+}
+
+.history-thumb,
+.preview-image {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 16px;
+    object-fit: cover;
+}
+
+.history-thumb {
+    aspect-ratio: 1 / 1;
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.8);
+}
+
+.preview-frame {
+    margin-top: 18px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.68);
+}
+
+.preview-image {
+    max-height: 320px;
+    object-fit: contain;
+    background: white;
 }
 
 .history-item:hover {

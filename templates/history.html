@@ -47,6 +47,9 @@
           <div class="history-list">
             {% for run in runs %}
               <div class="history-item stagger">
+                {% if run.preview_file_name %}
+                  <img class="history-thumb" src="{{ url_for('preview_image', filename=run.preview_file_name) }}" alt="Preview for {{ run.original_file_name or run.file_name }}">
+                {% endif %}
                 <div>
                   <a class="history-link" href="{{ url_for('history_detail', run_id=run.id) }}">
                     <strong>{{ run.original_file_name or run.file_name }}</strong>

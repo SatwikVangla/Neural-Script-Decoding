@@ -4,7 +4,7 @@ from datetime import datetime
 
 from flask import abort, current_app, flash, jsonify, redirect, render_template, request, send_from_directory, url_for
 
-from .files import allowed_file, build_upload_paths, cleanup_files
+from .files import allowed_file, build_upload_paths, cleanup_files, persist_preview
 from .services import build_result_payload, correct_text_with_llm, generate_pdf, json_download_response, ollama_status
 from .storage import delete_run, get_run, list_runs, prune_old_runs, save_run
 
@@ -47,6 +47,7 @@ def register_routes(app):
             raw_text=payload.get("raw_text", ""),
             corrected_text=payload.get("corrected_text", ""),
             pdf_path=os.path.join(current_app.config["UPLOAD_FOLDER"], run["pdf_file_name"]) if run.get("pdf_file_name") else "",
+            preview_url=url_for("preview_image", filename=run["preview_file_name"]) if run.get("preview_file_name") else "",
             system_status=payload.get("system", _system_status()),
             result_payload=payload,
         )
@@ -58,6 +59,8 @@ def register_routes(app):
             abort(404)
         if deleted.get("pdf_file_name"):
             cleanup_files(os.path.join(current_app.config["UPLOAD_FOLDER"], deleted["pdf_file_name"]))
+        if deleted.get("preview_file_name"):
+            cleanup_files(os.path.join(current_app.config["UPLOAD_FOLDER"], deleted["preview_file_name"]))
         flash("Saved run deleted")
         logger.info("Deleted saved OCR run %s", run_id)
         return redirect(url_for("history"))
@@ -79,6 +82,7 @@ def register_routes(app):
 
             try:
                 logger.info("Processing image: %s", paths["filename"])
+                persist_preview(paths["file_path"], paths["preview_path"])
                 ocr_results = _ocr_engine().process_with_all_engines(paths["file_path"])
                 raw_text = _ocr_engine().combine_results(ocr_results)
                 corrected_text = correct_text_with_llm(raw_text, current_app.config)
@@ -92,7 +96,7 @@ def register_routes(app):
                     corrected_text=corrected_text,
                     system_status=_system_status(),
                 )
-                run_id = save_run(current_app.config["DATABASE_PATH"], result_payload, paths["pdf_path"])
+                run_id = save_run(current_app.config["DATABASE_PATH"], result_payload, paths["pdf_path"], paths["preview_path"])
                 _prune_saved_runs()
                 return render_template(
                     "results.html",
@@ -100,6 +104,7 @@ def register_routes(app):
                     raw_text=raw_text,
                     corrected_text=corrected_text,
                     pdf_path=paths["pdf_path"],
+                    preview_url=url_for("preview_image", filename=os.path.basename(paths["preview_path"])),
                     system_status=_system_status(),
                     result_payload=result_payload,
                     run_id=run_id,
@@ -107,7 +112,7 @@ def register_routes(app):
             except Exception as exc:
                 logger.error("Processing failed: %s", exc)
                 flash(f"Error processing image: {exc}")
-                cleanup_files(paths["file_path"], paths["preprocessed_path"])
+                cleanup_files(paths["file_path"], paths["preprocessed_path"], paths["preview_path"])
                 return redirect(url_for("index"))
 
         flash("Allowed file types are png, jpg, jpeg, gif, bmp")
@@ -139,6 +144,7 @@ def register_routes(app):
             paths = build_upload_paths(current_app.config["UPLOAD_FOLDER"], file.filename)
             file.save(paths["file_path"])
             logger.info("API OCR request for %s", paths["filename"])
+            persist_preview(paths["file_path"], paths["preview_path"])
             ocr_results = _ocr_engine().process_with_all_engines(paths["file_path"])
             combined_text = _ocr_engine().combine_results(ocr_results)
             corrected_text = correct_text_with_llm(combined_text, current_app.config)
@@ -150,12 +156,13 @@ def register_routes(app):
                 corrected_text=corrected_text,
                 system_status=_system_status(),
             )
-            run_id = save_run(current_app.config["DATABASE_PATH"], payload, paths["pdf_path"])
+            run_id = save_run(current_app.config["DATABASE_PATH"], payload, paths["pdf_path"], paths["preview_path"])
             _prune_saved_runs()
             return jsonify(
                 {
                     "success": True,
                     "run_id": run_id,
+                    "preview_url": url_for("preview_image", filename=os.path.basename(paths["preview_path"])),
                     **payload,
                 }
             )
@@ -189,6 +196,16 @@ def register_routes(app):
         logger.info("Serving structured OCR export for %s", stem)
         return json_download_response(payload, f"{stem}.json")
 
+    @app.route("/preview/<filename>")
+    def preview_image(filename):
+        safe_name = os.path.basename(filename)
+        if safe_name != filename:
+            abort(404)
+        preview_path = os.path.join(current_app.config["UPLOAD_FOLDER"], safe_name)
+        if os.path.exists(preview_path):
+            return send_from_directory(current_app.config["UPLOAD_FOLDER"], safe_name)
+        abort(404)
+
 
 def _ocr_engine():
     return current_app.extensions["ocr_engine"]
@@ -207,5 +224,7 @@ def _prune_saved_runs():
     for run in deleted:
         if run.get("pdf_file_name"):
             cleanup_files(os.path.join(current_app.config["UPLOAD_FOLDER"], run["pdf_file_name"]))
+        if run.get("preview_file_name"):
+            cleanup_files(os.path.join(current_app.config["UPLOAD_FOLDER"], run["preview_file_name"]))
     if deleted:
         logger.info("Pruned %s saved OCR runs", len(deleted))

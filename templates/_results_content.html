@@ -2,6 +2,11 @@
   <div class="panel-inner">
     <p class="section-label">Summary</p>
     <h2 class="section-title">Extraction overview</h2>
+    {% if preview_url %}
+      <div class="preview-frame">
+        <img src="{{ preview_url }}" alt="Uploaded handwriting preview" class="preview-image">
+      </div>
+    {% endif %}
 
     <div class="stats-grid">
       <div class="stat-card stagger">

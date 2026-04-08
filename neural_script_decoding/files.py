@@ -1,4 +1,5 @@
 import os
+import shutil
 import uuid
 
 
@@ -20,7 +21,13 @@ def build_upload_paths(upload_folder, original_name):
         "file_path": file_path,
         "preprocessed_path": f"{stem}_preprocessed{ext}",
         "pdf_path": f"{file_path}.pdf",
+        "preview_path": f"{stem}_preview{ext}",
     }
+
+
+def persist_preview(source_path, preview_path):
+    shutil.copy2(source_path, preview_path)
+    return preview_path
 
 
 def cleanup_files(*paths):

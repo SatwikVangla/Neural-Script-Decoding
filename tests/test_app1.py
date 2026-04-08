@@ -75,11 +75,12 @@ def test_upload_generates_pdf_and_cleans_temp_files(client):
     assert b"OCR result board" in response.data
     assert b"Download JSON" in response.data
     assert b"Open Saved Run" in response.data
+    assert b"/preview/" in response.data
 
     upload_dir = Path(app1.app.config["UPLOAD_FOLDER"])
     files = sorted(path.name for path in upload_dir.iterdir())
-    assert files == [name for name in files if name.endswith(".pdf")]
-    assert len(files) == 1
+    assert len([name for name in files if name.endswith(".pdf")]) == 1
+    assert len([name for name in files if "_preview." in name]) == 1
 
 
 def test_api_ocr_returns_json_and_cleans_temp_files(client):
@@ -96,9 +97,11 @@ def test_api_ocr_returns_json_and_cleans_temp_files(client):
     assert payload["corrected_text"] == "fixed rich raw text output"
     assert payload["system"]["engines"]["tesseract"]["ready"] is True
     assert payload["selected_engine"] == "easyocr"
+    assert "/preview/" in payload["preview_url"]
 
     upload_dir = Path(app1.app.config["UPLOAD_FOLDER"])
-    assert list(upload_dir.iterdir()) == []
+    remaining = sorted(path.name for path in upload_dir.iterdir())
+    assert any("_preview." in name for name in remaining)
 
 
 def test_download_json_returns_attachment(client):
@@ -125,11 +128,13 @@ def test_history_pages_render_saved_runs(client):
     assert history.status_code == 200
     assert b"OCR history" in history.data
     assert b"note.jpg" in history.data
+    assert b"/preview/" in history.data
 
     detail = client.get("/history/1")
     assert detail.status_code == 200
     assert b"Stored Run" in detail.data
     assert b"rich raw text output" in detail.data
+    assert b"/preview/" in detail.data
 
 
 def test_history_filters_and_delete(client):
