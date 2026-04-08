@@ -149,23 +149,61 @@ $env:OLLAMA_MODEL="mistral"
 $env:ENABLE_EASYOCR="true"
 ```
 
-## Running the App
+## Running the Project
 
-Start the application:
+Minimal local development flow:
+
+1. Create and activate the virtual environment.
+2. Install `requirements.txt`.
+3. Install Tesseract if you want OCR to work.
+4. Start Ollama and pull `mistral` if you want text correction.
+5. Set any needed environment variables.
+6. Start the app with `app.py`.
+7. Open `http://127.0.0.1:5000`.
 
 macOS / Linux:
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+ollama serve
+```
+
+In a second terminal:
+
+```bash
+source .venv/bin/activate
+ollama pull mistral
+export FLASK_SECRET_KEY="replace-me"
 python3 app.py
 ```
 
 Windows PowerShell:
 
 ```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+ollama serve
+```
+
+In a second PowerShell window:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+ollama pull mistral
+$env:FLASK_SECRET_KEY="replace-me"
 python app.py
 ```
 
-Then open `http://127.0.0.1:5000`.
+If you do not want Ollama correction yet, skip `ollama serve` and `ollama pull mistral`. The OCR flow will still run, and the UI will show Ollama as unavailable.
+
+Optional engines:
+
+- Install `requirements-ocr.txt` and set `ENABLE_EASYOCR=true` to enable EasyOCR.
+- Install `requirements-ocr.txt` and set `ENABLE_TROCR=true` to enable TrOCR.
+- Leave both disabled if you only want the lighter Tesseract-based setup.
 
 ## Running Tests
 
