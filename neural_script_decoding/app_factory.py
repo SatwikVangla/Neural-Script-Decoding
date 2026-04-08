@@ -1,5 +1,5 @@
 import logging
-import os
+from pathlib import Path
 
 from flask import Flask
 
@@ -11,15 +11,15 @@ from .web import register_routes
 
 def create_app():
     logging.basicConfig(level=logging.INFO)
-    package_dir = os.path.dirname(__file__)
+    package_dir = Path(__file__).resolve().parent
     app = Flask(
         __name__,
-        template_folder=os.path.join(package_dir, "..", "templates"),
-        static_folder=os.path.join(package_dir, "..", "static"),
+        template_folder=str((package_dir.parent / "templates").resolve()),
+        static_folder=str((package_dir.parent / "static").resolve()),
     )
     apply_config(app)
     logging.getLogger().setLevel(app.config["LOG_LEVEL"])
-    os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
+    Path(app.config["UPLOAD_FOLDER"]).mkdir(parents=True, exist_ok=True)
     init_db(app.config["DATABASE_PATH"])
     app.extensions["ocr_engine"] = MultiOCREngine(app.config)
     register_routes(app)

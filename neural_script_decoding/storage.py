@@ -2,6 +2,7 @@ import json
 import os
 import sqlite3
 from datetime import datetime, timezone
+from pathlib import Path
 
 
 SCHEMA = """
@@ -22,7 +23,9 @@ CREATE TABLE IF NOT EXISTS ocr_runs (
 
 
 def init_db(database_path):
-    os.makedirs(os.path.dirname(database_path), exist_ok=True)
+    db_path = Path(database_path)
+    if db_path.parent and str(db_path.parent) != ".":
+        db_path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(database_path) as connection:
         connection.execute(SCHEMA)
         columns = [row[1] for row in connection.execute("PRAGMA table_info(ocr_runs)").fetchall()]

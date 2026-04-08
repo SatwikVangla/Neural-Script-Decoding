@@ -37,15 +37,35 @@ Neural Script Decoding is a Flask application for extracting text from handwritt
 
 Install the core web stack:
 
+macOS / Linux:
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+Windows PowerShell:
+
+```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
 Install optional OCR models and test dependencies as needed:
 
+macOS / Linux:
+
 ```bash
+pip install -r requirements-ocr.txt
+pip install -r requirements-dev.txt
+```
+
+Windows PowerShell:
+
+```powershell
 pip install -r requirements-ocr.txt
 pip install -r requirements-dev.txt
 ```
@@ -67,12 +87,26 @@ brew install tesseract
 
 Windows:
 
-1. Install Tesseract OCR from a Windows distribution.
-2. Add the Tesseract install directory to `PATH`.
+1. Install Tesseract OCR from a Windows distribution such as UB Mannheim.
+2. Add the Tesseract install directory to `PATH`, for example `C:\Program Files\Tesseract-OCR`.
+3. Open a new terminal and verify:
+
+```powershell
+tesseract --version
+```
 
 ### Ollama Setup
 
+macOS / Linux:
+
 ```bash
+ollama serve
+ollama pull mistral
+```
+
+Windows PowerShell:
+
+```powershell
 ollama serve
 ollama pull mistral
 ```
@@ -99,25 +133,51 @@ The app reads configuration from environment variables.
 
 Example:
 
+macOS / Linux:
+
 ```bash
 export FLASK_SECRET_KEY="replace-me"
 export OLLAMA_MODEL="mistral"
 export ENABLE_EASYOCR="true"
 ```
 
+Windows PowerShell:
+
+```powershell
+$env:FLASK_SECRET_KEY="replace-me"
+$env:OLLAMA_MODEL="mistral"
+$env:ENABLE_EASYOCR="true"
+```
+
 ## Running the App
 
 Start the application:
 
+macOS / Linux:
+
 ```bash
 python3 app.py
+```
+
+Windows PowerShell:
+
+```powershell
+python app.py
 ```
 
 Then open `http://127.0.0.1:5000`.
 
 ## Running Tests
 
+macOS / Linux:
+
 ```bash
+pytest
+```
+
+Windows PowerShell:
+
+```powershell
 pytest
 ```
 
@@ -130,10 +190,24 @@ GitHub Actions runs the test suite on Python 3.11 and 3.12 through [`.github/wor
 
 ## Deployment
 
-Gunicorn entrypoint:
+Linux production with Gunicorn:
 
 ```bash
 gunicorn -c gunicorn.conf.py wsgi:application
+```
+
+Cross-platform production with Waitress:
+
+macOS / Linux:
+
+```bash
+python3 serve.py
+```
+
+Windows PowerShell:
+
+```powershell
+python serve.py
 ```
 
 Docker build and run:
@@ -151,3 +225,4 @@ The container installs Tesseract. Optional EasyOCR and TrOCR dependencies are st
 - If only some OCR dependencies are installed, or if engines are disabled by configuration, the UI and `/health` endpoint will report that explicitly.
 - `app.py` is the stable entrypoint for local runs and deployment wrappers.
 - `app1.py` contains the actual application implementation.
+- The application normalizes `UPLOAD_FOLDER`, `PDF_FONT_PATH`, and `DATABASE_PATH` to absolute paths so local runs behave consistently on Windows, macOS, and Linux.
