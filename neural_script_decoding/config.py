@@ -8,6 +8,7 @@ def apply_config(app):
     app.config["OLLAMA_URL"] = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
     app.config["OLLAMA_MODEL"] = os.environ.get("OLLAMA_MODEL", "mistral")
     app.config["PDF_FONT_PATH"] = os.environ.get("PDF_FONT_PATH", os.path.join("static", "DejaVuSans.ttf"))
+    app.config["DATABASE_PATH"] = os.environ.get("DATABASE_PATH", os.path.join("instance", "neural_script_decoding.sqlite3"))
     app.config["APP_HOST"] = os.environ.get("APP_HOST", "0.0.0.0")
     app.config["APP_PORT"] = int(os.environ.get("APP_PORT", "5000"))
     app.config["APP_DEBUG"] = os.environ.get("APP_DEBUG", "false").lower() in {"1", "true", "yes", "on"}

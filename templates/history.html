@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Run History</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="page-shell">
+    <section class="hero stagger">
+      <div class="hero-row">
+        <div class="hero-brand">
+          <p class="eyebrow">Saved Runs</p>
+          <h1>OCR history</h1>
+          <p>Review past extractions, reopen the corrected text, and download previous exports without reprocessing the image.</p>
+        </div>
+        <a class="hero-chip" href="{{ url_for('index') }}">New Upload</a>
+      </div>
+    </section>
+
+    <section class="panel stagger" style="margin-top: 24px;">
+      <div class="panel-inner">
+        <p class="section-label">Recent Runs</p>
+        <h2 class="section-title">Stored outputs</h2>
+        {% if runs %}
+          <div class="history-list">
+            {% for run in runs %}
+              <a class="history-item stagger" href="{{ url_for('history_detail', run_id=run.id) }}">
+                <div>
+                  <strong>{{ run.original_file_name or run.file_name }}</strong>
+                  <p class="helper">Selected engine: {{ run.selected_engine or 'unknown' }}</p>
+                </div>
+                <div class="history-meta">
+                  <span>{{ run.created_at }}</span>
+                  <span>{{ (run.corrected_text or '')[:120] }}{% if (run.corrected_text or '')|length > 120 %}...{% endif %}</span>
+                </div>
+              </a>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="section-copy">No OCR runs have been stored yet.</p>
+        {% endif %}
+      </div>
+    </section>
+  </main>
+</body>
+</html>

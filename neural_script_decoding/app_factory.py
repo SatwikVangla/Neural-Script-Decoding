@@ -5,6 +5,7 @@ from flask import Flask
 
 from .config import apply_config
 from .ocr import MultiOCREngine
+from .storage import init_db
 from .web import register_routes
 
 
@@ -19,6 +20,7 @@ def create_app():
     apply_config(app)
     logging.getLogger().setLevel(app.config["LOG_LEVEL"])
     os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
+    init_db(app.config["DATABASE_PATH"])
     app.extensions["ocr_engine"] = MultiOCREngine(app.config)
     register_routes(app)
     return app

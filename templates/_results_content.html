@@ -1,0 +1,122 @@
+<section class="panel stagger" style="margin-top: 24px;">
+  <div class="panel-inner">
+    <p class="section-label">Summary</p>
+    <h2 class="section-title">Extraction overview</h2>
+
+    <div class="stats-grid">
+      <div class="stat-card stagger">
+        <div class="stat-value">{{ ocr_results|length }}</div>
+        <div class="stat-label">OCR engines queried</div>
+      </div>
+      <div class="stat-card stagger">
+        <div class="stat-value">{{ corrected_text.split()|length }}</div>
+        <div class="stat-label">Words in corrected output</div>
+      </div>
+      <div class="stat-card stagger">
+        <div class="stat-value">{{ corrected_text|length }}</div>
+        <div class="stat-label">Characters exported</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="engine-grid">
+  <div class="panel stagger">
+    <div class="panel-inner">
+      <p class="section-label">OCR Engines</p>
+      <h2 class="section-title">Recognizer output</h2>
+      <div class="engine-grid" style="grid-template-columns: 1fr;">
+        {% for result in ocr_results %}
+          <article class="engine-card stagger">
+            <div class="engine-head">
+              <strong>
+                {% if result.engine == 'tesseract' %}Tesseract OCR{% elif result.engine == 'easyocr' %}EasyOCR{% elif result.engine == 'trocr' %}TrOCR{% else %}Unknown Engine{% endif %}
+              </strong>
+              {% if result.confidence > 0 %}
+                <span class="confidence {% if result.confidence > 80 %}high{% elif result.confidence > 50 %}medium{% else %}low{% endif %}">
+                  {{ "%.1f"|format(result.confidence) }}%
+                </span>
+              {% endif %}
+            </div>
+            <div class="engine-body">
+              {% if result.text %}
+                <pre class="mono-block">{{ result.text }}</pre>
+              {% elif 'error' in result %}
+                <p class="mono-block engine-error">{{ result.error }}</p>
+              {% else %}
+                <p class="mono-block">No text extracted.</p>
+              {% endif %}
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="panel stagger">
+    <div class="panel-inner">
+      <p class="section-label">Review</p>
+      <h2 class="section-title">Final text output</h2>
+
+      <div class="comparison-grid" style="grid-template-columns: 1fr;">
+        <article class="text-card stagger">
+          <div class="text-head">
+            <strong>Raw extracted text</strong>
+            <span class="pill">OCR selection</span>
+          </div>
+          <div class="text-body">
+            <pre class="text-block">{{ raw_text or "No text extracted" }}</pre>
+          </div>
+        </article>
+
+        <article class="text-card stagger">
+          <div class="text-head">
+            <strong>Corrected text</strong>
+            <span class="pill">LLM refinement</span>
+          </div>
+          <div class="text-body">
+            <pre class="text-block">{{ corrected_text or "No correction available" }}</pre>
+          </div>
+        </article>
+      </div>
+
+      <div class="meta-grid">
+        {% set system = system_status|default({}) %}
+        {% set engines = system.get('engines', {}) %}
+        <div class="meta-card stagger">
+          <strong>Tesseract</strong>
+          <span>{{ engines.get('tesseract', {}).get('reason', 'Unknown') }}</span>
+        </div>
+        <div class="meta-card stagger">
+          <strong>EasyOCR</strong>
+          <span>{{ engines.get('easyocr', {}).get('reason', 'Unknown') }}</span>
+        </div>
+        <div class="meta-card stagger">
+          <strong>TrOCR</strong>
+          <span>{{ engines.get('trocr', {}).get('reason', 'Unknown') }}</span>
+        </div>
+        <div class="meta-card stagger">
+          <strong>Ollama</strong>
+          <span>{{ system.get('ollama', {}).get('reason', 'Unknown') }}</span>
+        </div>
+      </div>
+
+      <div class="actions-row" style="margin-top: 24px;">
+        {% if pdf_path %}
+          <a class="button" href="{{ url_for('download_pdf', filename=pdf_path.split('/')[-1]) }}">Download PDF</a>
+        {% endif %}
+        <form method="post" action="{{ url_for('download_json') }}" class="inline-form">
+          <input type="hidden" name="payload" value='{{ result_payload|tojson }}'>
+          <button class="ghost-button" type="submit">Download JSON</button>
+        </form>
+        {% if run_id %}
+          <a class="ghost-button" href="{{ url_for('history_detail', run_id=run_id) }}">Open Saved Run</a>
+        {% else %}
+          <a class="ghost-button" href="{{ url_for('history') }}">View History</a>
+        {% endif %}
+        <a class="ghost-button" href="{{ url_for('index') }}">Process Another Image</a>
+        <button class="link-button" type="button" data-copy-target="{{ corrected_text|e }}">Copy Corrected Text</button>
+      </div>
+    </div>
+  </div>
+</section>

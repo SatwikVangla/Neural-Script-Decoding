@@ -15,6 +15,7 @@ def build_upload_paths(upload_folder, original_name):
     file_path = os.path.join(upload_folder, filename)
     stem, ext = os.path.splitext(file_path)
     return {
+        "original_name": original_name,
         "filename": filename,
         "file_path": file_path,
         "preprocessed_path": f"{stem}_preprocessed{ext}",

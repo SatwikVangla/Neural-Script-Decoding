@@ -6,6 +6,7 @@ from flask import abort, current_app, flash, jsonify, redirect, render_template,
 
 from .files import allowed_file, build_upload_paths, cleanup_files
 from .services import build_result_payload, correct_text_with_llm, generate_pdf, json_download_response, ollama_status
+from .storage import get_run, list_runs, save_run
 
 
 logger = logging.getLogger(__name__)
@@ -15,6 +16,27 @@ def register_routes(app):
     @app.route("/")
     def index():
         return render_template("index.html", system_status=_system_status())
+
+    @app.route("/history")
+    def history():
+        return render_template("history.html", runs=list_runs(current_app.config["DATABASE_PATH"]), system_status=_system_status())
+
+    @app.route("/history/<int:run_id>")
+    def history_detail(run_id):
+        run = get_run(current_app.config["DATABASE_PATH"], run_id)
+        if run is None:
+            abort(404)
+        payload = run["payload"]
+        return render_template(
+            "history_detail.html",
+            run=run,
+            ocr_results=payload.get("ocr_results", []),
+            raw_text=payload.get("raw_text", ""),
+            corrected_text=payload.get("corrected_text", ""),
+            pdf_path=os.path.join(current_app.config["UPLOAD_FOLDER"], run["pdf_file_name"]) if run.get("pdf_file_name") else "",
+            system_status=payload.get("system", _system_status()),
+            result_payload=payload,
+        )
 
     @app.route("/upload", methods=["POST"])
     def upload_file():
@@ -40,11 +62,13 @@ def register_routes(app):
                 cleanup_files(paths["file_path"], paths["preprocessed_path"])
                 result_payload = build_result_payload(
                     filename=paths["filename"],
+                    original_name=paths["original_name"],
                     ocr_results=ocr_results,
                     raw_text=raw_text,
                     corrected_text=corrected_text,
                     system_status=_system_status(),
                 )
+                run_id = save_run(current_app.config["DATABASE_PATH"], result_payload, paths["pdf_path"])
                 return render_template(
                     "results.html",
                     ocr_results=ocr_results,
@@ -53,6 +77,7 @@ def register_routes(app):
                     pdf_path=paths["pdf_path"],
                     system_status=_system_status(),
                     result_payload=result_payload,
+                    run_id=run_id,
                 )
             except Exception as exc:
                 logger.error("Processing failed: %s", exc)
@@ -94,14 +119,17 @@ def register_routes(app):
             corrected_text = correct_text_with_llm(combined_text, current_app.config)
             payload = build_result_payload(
                 filename=paths["filename"],
+                original_name=paths["original_name"],
                 ocr_results=ocr_results,
                 raw_text=combined_text,
                 corrected_text=corrected_text,
                 system_status=_system_status(),
             )
+            run_id = save_run(current_app.config["DATABASE_PATH"], payload, paths["pdf_path"])
             return jsonify(
                 {
                     "success": True,
+                    "run_id": run_id,
                     **payload,
                 }
             )

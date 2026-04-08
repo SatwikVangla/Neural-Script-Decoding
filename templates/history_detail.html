@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OCR Results</title>
+  <title>Run Detail</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -11,17 +11,30 @@
     <section class="hero stagger">
       <div class="hero-row">
         <div class="hero-brand">
-          <p class="eyebrow">Analysis Complete</p>
-          <h1>OCR result board</h1>
-          <p>
-            Compare the raw engine output against the corrected text, inspect which recognizer won,
-            and export the cleaned document once it looks right.
-          </p>
+          <p class="eyebrow">Stored Run</p>
+          <h1>{{ run.original_file_name or run.file_name }}</h1>
+          <p>Saved on {{ run.created_at }} using {{ run.selected_engine or 'an unknown engine' }} as the selected OCR output.</p>
         </div>
-        <div class="hero-chip">Interactive review + download</div>
+        <a class="hero-chip" href="{{ url_for('history') }}">Back To History</a>
       </div>
     </section>
 
+    <section class="panel stagger" style="margin-top: 24px;">
+      <div class="panel-inner">
+        <div class="actions-row">
+          {% if run.pdf_file_name %}
+            <a class="button" href="{{ url_for('download_pdf', filename=run.pdf_file_name) }}">Download PDF</a>
+          {% endif %}
+          <form method="post" action="{{ url_for('download_json') }}" class="inline-form">
+            <input type="hidden" name="payload" value='{{ result_payload|tojson }}'>
+            <button class="ghost-button" type="submit">Download JSON</button>
+          </form>
+          <a class="ghost-button" href="{{ url_for('index') }}">Process Another Image</a>
+        </div>
+      </div>
+    </section>
+
+    {% set run_id = run.id %}
     {% include "_results_content.html" %}
   </main>
 
@@ -44,7 +57,7 @@
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = 'ocr-result.json';
+      link.download = '{{ (run.original_file_name or run.file_name).rsplit(".", 1)[0] if "." in (run.original_file_name or run.file_name) else (run.original_file_name or run.file_name) }}.json';
       document.body.appendChild(link);
       link.click();
       link.remove();

@@ -82,7 +82,7 @@ def generate_pdf(text, output_path, font_path):
     logger.info("PDF generated: %s", output_path)
 
 
-def build_result_payload(*, filename, ocr_results, raw_text, corrected_text, system_status):
+def build_result_payload(*, filename, original_name, ocr_results, raw_text, corrected_text, system_status):
     selected_engine = None
     for result in ocr_results:
         if result.get("text") == raw_text and "error" not in result:
@@ -91,6 +91,7 @@ def build_result_payload(*, filename, ocr_results, raw_text, corrected_text, sys
 
     return {
         "file": filename,
+        "original_file": original_name,
         "selected_engine": selected_engine,
         "ocr_results": ocr_results,
         "raw_text": raw_text,

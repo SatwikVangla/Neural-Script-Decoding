@@ -6,18 +6,22 @@ import pytest
 import app
 import app1
 from neural_script_decoding import web
+from neural_script_decoding.storage import init_db
 
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     upload_dir = tmp_path / "uploads"
     upload_dir.mkdir()
+    database_path = tmp_path / "runs.sqlite3"
 
     app1.app.config.update(
         TESTING=True,
         UPLOAD_FOLDER=str(upload_dir),
+        DATABASE_PATH=str(database_path),
         WTF_CSRF_ENABLED=False,
     )
+    init_db(app1.app.config["DATABASE_PATH"])
 
     monkeypatch.setattr(
         app1.ocr_engine,
@@ -69,6 +73,7 @@ def test_upload_generates_pdf_and_cleans_temp_files(client):
     assert response.status_code == 200
     assert b"OCR result board" in response.data
     assert b"Download JSON" in response.data
+    assert b"Open Saved Run" in response.data
 
     upload_dir = Path(app1.app.config["UPLOAD_FOLDER"])
     files = sorted(path.name for path in upload_dir.iterdir())
@@ -104,6 +109,26 @@ def test_download_json_returns_attachment(client):
     assert response.status_code == 200
     assert response.mimetype == "application/json"
     assert "attachment; filename=\"sample.json\"" in response.headers["Content-Disposition"]
+
+
+def test_history_pages_render_saved_runs(client):
+    response = client.post(
+        "/upload",
+        data={"file": (BytesIO(b"fake-image-bytes"), "note.jpg")},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 200
+
+    history = client.get("/history")
+    assert history.status_code == 200
+    assert b"OCR history" in history.data
+    assert b"note.jpg" in history.data
+
+    detail = client.get("/history/1")
+    assert detail.status_code == 200
+    assert b"Stored Run" in detail.data
+    assert b"rich raw text output" in detail.data
 
 
 def test_api_ocr_requires_file(client):
