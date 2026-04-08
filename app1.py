@@ -1,20 +1,51 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory, jsonify, abort
 import os
 import uuid
-import cv2
-import pytesseract
-from PIL import Image
-import numpy as np
 import requests
-from fpdf import FPDF
-from fpdf.enums import XPos, YPos
 import textwrap
-import easyocr
-import torch
-from transformers import TrOCRProcessor, VisionEncoderDecoderModel
 import logging
 from datetime import datetime
-import json
+
+try:
+    import cv2
+except ImportError:  # pragma: no cover - dependency presence varies by environment
+    cv2 = None
+
+try:
+    import pytesseract
+except ImportError:  # pragma: no cover - dependency presence varies by environment
+    pytesseract = None
+
+try:
+    from PIL import Image
+except ImportError:  # pragma: no cover - dependency presence varies by environment
+    Image = None
+
+try:
+    import numpy as np
+except ImportError:  # pragma: no cover - dependency presence varies by environment
+    np = None
+
+try:
+    from fpdf import FPDF
+except ImportError:  # pragma: no cover - dependency presence varies by environment
+    FPDF = None
+
+try:
+    import easyocr
+except ImportError:  # pragma: no cover - dependency presence varies by environment
+    easyocr = None
+
+try:
+    import torch
+except ImportError:  # pragma: no cover - dependency presence varies by environment
+    torch = None
+
+try:
+    from transformers import TrOCRProcessor, VisionEncoderDecoderModel
+except ImportError:  # pragma: no cover - dependency presence varies by environment
+    TrOCRProcessor = None
+    VisionEncoderDecoderModel = None
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -22,10 +53,29 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(32))
-app.config['UPLOAD_FOLDER'] = 'static/uploads'
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+app.config['UPLOAD_FOLDER'] = os.environ.get("UPLOAD_FOLDER", 'static/uploads')
+app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get("MAX_CONTENT_LENGTH_MB", "16")) * 1024 * 1024
+app.config['OLLAMA_URL'] = os.environ.get("OLLAMA_URL", 'http://localhost:11434/api/generate')
+app.config['OLLAMA_MODEL'] = os.environ.get("OLLAMA_MODEL", 'mistral')
 
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+
+def dependency_available(*modules):
+    return all(module is not None for module in modules)
+
+
+def build_upload_paths(original_name):
+    extension = os.path.splitext(original_name)[1].lower()
+    filename = f"{uuid.uuid4()}{extension}"
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    stem, ext = os.path.splitext(file_path)
+    return {
+        'filename': filename,
+        'file_path': file_path,
+        'preprocessed_path': f"{stem}_preprocessed{ext}",
+        'pdf_path': f"{file_path}.pdf",
+    }
 
 class MultiOCREngine:
     def __init__(self):
@@ -44,30 +94,40 @@ class MultiOCREngine:
 
         try:
             # Initialize EasyOCR
-            self.engines['easyocr'] = easyocr.Reader(['en'], gpu=torch.cuda.is_available())
-            logger.info("EasyOCR initialized successfully")
+            if dependency_available(easyocr, torch):
+                self.engines['easyocr'] = easyocr.Reader(['en'], gpu=torch.cuda.is_available())
+                logger.info("EasyOCR initialized successfully")
+            else:
+                logger.warning("EasyOCR dependencies are not installed")
         except Exception as e:
             logger.error(f"Failed to initialize EasyOCR: {e}")
             self.engines['easyocr'] = None
         
         try:
             # Initialize TrOCR for handwriting
-            self.engines['trocr_processor'] = TrOCRProcessor.from_pretrained('microsoft/trocr-base-handwritten')
-            self.engines['trocr_model'] = VisionEncoderDecoderModel.from_pretrained('microsoft/trocr-base-handwritten')
-            logger.info("TrOCR initialized successfully")
+            if dependency_available(torch, TrOCRProcessor, VisionEncoderDecoderModel):
+                self.engines['trocr_processor'] = TrOCRProcessor.from_pretrained('microsoft/trocr-base-handwritten')
+                self.engines['trocr_model'] = VisionEncoderDecoderModel.from_pretrained('microsoft/trocr-base-handwritten')
+                logger.info("TrOCR initialized successfully")
+            else:
+                logger.warning("TrOCR dependencies are not installed")
         except Exception as e:
             logger.error(f"Failed to initialize TrOCR: {e}")
             self.engines['trocr_processor'] = None
             self.engines['trocr_model'] = None
         
-        # Tesseract is always available (assumed to be installed)
-        self.engines['tesseract'] = True
-        logger.info("Tesseract OCR ready")
+        self.engines['tesseract'] = dependency_available(pytesseract, Image, np, cv2)
+        if self.engines['tesseract']:
+            logger.info("Tesseract OCR ready")
+        else:
+            logger.warning("Tesseract dependencies are not installed")
         self.initialized = True
 
     def tesseract_ocr(self, image_path, preprocessed_path=None):
         """Tesseract OCR with preprocessing"""
         try:
+            if not self.engines['tesseract']:
+                return {'text': '', 'confidence': 0, 'engine': 'tesseract', 'error': 'Tesseract dependencies not installed'}
             if preprocessed_path is None:
                 preprocessed_path = self.preprocess_image(image_path)
             
@@ -136,7 +196,11 @@ class MultiOCREngine:
     def preprocess_image(self, image_path):
         """Enhanced image preprocessing"""
         try:
+            if not dependency_available(cv2, np):
+                raise RuntimeError("OpenCV and NumPy are required for preprocessing")
             img = cv2.imread(image_path)
+            if img is None:
+                raise ValueError("Unable to read uploaded image")
             
             # Convert to grayscale
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -225,6 +289,9 @@ def allowed_file(filename):
 
 def correct_text_with_llm(text):
     """Correct text using local LLM"""
+    if not text.strip():
+        return ""
+
     prompt = f"""Please correct the following text for spelling and grammar errors. 
     This text was extracted from a handwritten document using OCR, so there may be character recognition errors.
     Return only the corrected text without any explanations:
@@ -232,8 +299,8 @@ def correct_text_with_llm(text):
     {text}"""
     
     try:
-        res = requests.post('http://localhost:11434/api/generate',
-                            json={"model": "mistral", "prompt": prompt, "stream": False},
+        res = requests.post(app.config['OLLAMA_URL'],
+                            json={"model": app.config['OLLAMA_MODEL'], "prompt": prompt, "stream": False},
                             timeout=30)
         if res.status_code == 200:
             return res.json()['response'].strip()
@@ -245,6 +312,9 @@ def correct_text_with_llm(text):
 def generate_pdf(text, output_path):
     """Generate PDF from text"""
     try:
+        if FPDF is None:
+            raise RuntimeError("FPDF is not installed")
+
         pdf = FPDF()
         pdf.add_page()
 
@@ -280,7 +350,7 @@ def generate_pdf(text, output_path):
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('index.html', available_engines=available_engine_summary())
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
@@ -294,14 +364,14 @@ def upload_file():
         return redirect(url_for('index'))
 
     if file and allowed_file(file.filename):
-        filename = str(uuid.uuid4()) + os.path.splitext(file.filename)[1]
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        preprocessed_path = os.path.splitext(file_path)[0] + "_preprocessed" + os.path.splitext(file_path)[1]
+        paths = build_upload_paths(file.filename)
+        file_path = paths['file_path']
+        preprocessed_path = paths['preprocessed_path']
         file.save(file_path)
 
         try:
             # Process with all OCR engines
-            logger.info(f"Processing image: {filename}")
+            logger.info(f"Processing image: {paths['filename']}")
             ocr_results = ocr_engine.process_with_all_engines(file_path)
             
             # Combine results
@@ -311,7 +381,7 @@ def upload_file():
             corrected_text = correct_text_with_llm(raw_text)
             
             # Generate PDF
-            output_pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], filename + ".pdf")
+            output_pdf_path = paths['pdf_path']
             generate_pdf(corrected_text, output_pdf_path)
             
             # Prepare results for display
@@ -319,7 +389,8 @@ def upload_file():
                 'ocr_results': ocr_results,
                 'raw_text': raw_text,
                 'corrected_text': corrected_text,
-                'pdf_path': output_pdf_path
+                'pdf_path': output_pdf_path,
+                'available_engines': available_engine_summary(),
             }
             cleanup_files(file_path, preprocessed_path)
             return render_template("results.html", **results_data)
@@ -355,11 +426,14 @@ def api_ocr():
     file = request.files['file']
     if not allowed_file(file.filename):
         return jsonify({'error': 'Invalid file type'}), 400
+
+    file_path = None
+    preprocessed_path = None
     
     try:
-        filename = str(uuid.uuid4()) + os.path.splitext(file.filename)[1]
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        preprocessed_path = os.path.splitext(file_path)[0] + "_preprocessed" + os.path.splitext(file_path)[1]
+        paths = build_upload_paths(file.filename)
+        file_path = paths['file_path']
+        preprocessed_path = paths['preprocessed_path']
         file.save(file_path)
         
         # Process with all engines
@@ -374,7 +448,8 @@ def api_ocr():
             'success': True,
             'ocr_results': ocr_results,
             'raw_text': combined_text,
-            'corrected_text': corrected_text
+            'corrected_text': corrected_text,
+            'engines': available_engine_summary(),
         })
         
     except Exception as e:
@@ -388,13 +463,17 @@ def health_check():
     return jsonify({
         'status': 'healthy',
         'initialized': ocr_engine.initialized,
-        'engines': {
-            'tesseract': True,
-            'easyocr': ocr_engine.engines['easyocr'] is not None,
-            'trocr': ocr_engine.engines['trocr_model'] is not None
-        },
+        'engines': available_engine_summary(),
         'timestamp': datetime.now().isoformat()
     })
+
+
+def available_engine_summary():
+    return {
+        'tesseract': bool(ocr_engine.engines.get('tesseract')),
+        'easyocr': ocr_engine.engines.get('easyocr') is not None,
+        'trocr': ocr_engine.engines.get('trocr_model') is not None,
+    }
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

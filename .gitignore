@@ -1,5 +1,7 @@
 __pycache__/
 *.py[cod]
+.venv/
+.pytest_cache/
 
 static/uploads/*
 !static/uploads/.gitkeep

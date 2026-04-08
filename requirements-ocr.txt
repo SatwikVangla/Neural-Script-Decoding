@@ -1,0 +1,5 @@
+-r requirements.txt
+easyocr>=1.7,<2.0
+torch>=2.4,<3.0
+torchvision>=0.19,<1.0
+transformers>=4.46,<5.0

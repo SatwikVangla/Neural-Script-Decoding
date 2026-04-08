@@ -2,162 +2,110 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Neural Script Decoding</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
-  <style>
-    #starfield {
-      position: fixed;
-      top: 0; 
-      left: 0; 
-      width: 100vw; 
-      height: 100vh;
-      z-index: -2;
-      background: black;
-    }
-    
-    /* Ensure content is readable over starfield */
-    .navbar, .card, footer {
-      background-color: rgba(var(--bs-body-bg-rgb), 0.95);
-      backdrop-filter: blur(5px);
-    }
-    
-    .bg-body-secondary {
-      background-color: rgba(var(--bs-secondary-bg-rgb), 0.95) !important;
-    }
-    
-    .bg-body-tertiary {
-      background-color: rgba(var(--bs-tertiary-bg-rgb), 0.95) !important;
-    }
-  </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body class="min-vh-100 d-flex flex-column">
-  <canvas id="starfield"></canvas>
-  
-  <!-- Navbar -->
-  <nav class="navbar navbar-expand-lg bg-body-secondary border-bottom">
-    <div class="container-fluid">
-      <a class="navbar-brand fw-bold" href="/">🧠 Neural Script Decoding</a>
-      <button id="themeToggle" class="btn btn-outline-secondary btn-sm ms-auto">🌓 Toggle Theme</button>
-    </div>
-  </nav>
-  
-  <!-- Main Content -->
-  <main class="flex-grow-1 d-flex align-items-center justify-content-center">
-    <div class="card shadow p-5" style="width: 100%; max-width: 500px;">
-      <h2 class="mb-4 text-center">Upload Handwritten Image</h2>
-      <form action="/upload" method="post" enctype="multipart/form-data">
-        <input type="file" name="file" class="form-control mb-3" required>
-        <button type="submit" class="btn btn-primary w-100">Process & Download PDF</button>
-      </form>
-    </div>
+<body>
+  <main class="page-shell">
+    <section class="hero stagger">
+      <div class="hero-row">
+        <div class="hero-brand">
+          <p class="eyebrow">Handwriting OCR Workbench</p>
+          <h1>Neural Script Decoding</h1>
+          <p>
+            Upload a handwritten page, compare multi-engine OCR output, apply local LLM correction,
+            and export the cleaned text as a PDF.
+          </p>
+        </div>
+        <div class="hero-chip">Multi-engine analysis + PDF export</div>
+      </div>
+    </section>
+
+    <section class="layout">
+      <article class="panel stagger">
+        <div class="panel-inner">
+          {% with messages = get_flashed_messages() %}
+            {% if messages %}
+              <div class="flash-stack">
+                {% for message in messages %}
+                  <div class="flash">{{ message }}</div>
+                {% endfor %}
+              </div>
+            {% endif %}
+          {% endwith %}
+
+          <p class="section-label">Workspace</p>
+          <h2 class="section-title">Drop in a scanned note or handwritten image</h2>
+          <p class="section-copy">
+            The pipeline runs OCR across multiple engines, picks the strongest result, then applies
+            a local correction pass before generating a downloadable PDF.
+          </p>
+
+          <form class="upload-form" action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data">
+            <label class="dropzone" for="file-input">
+              <input id="file-input" type="file" name="file" accept=".png,.jpg,.jpeg,.gif,.bmp,image/*" required>
+              <div class="dropzone-copy">
+                <strong>Choose a handwriting sample</strong>
+                <span>Supports PNG, JPG, JPEG, GIF, and BMP up to 16 MB. Click or drag a file into this area.</span>
+              </div>
+            </label>
+            <p id="file-name" class="file-name"></p>
+            <div class="actions-row">
+              <button class="button" type="submit">Process Image</button>
+              <span class="helper">Best results come from high-contrast scans with even lighting.</span>
+            </div>
+          </form>
+        </div>
+      </article>
+
+      <aside class="panel stagger">
+        <div class="panel-inner">
+          <p class="section-label">System Status</p>
+          <h2 class="section-title">Available engines</h2>
+          <div class="status-list">
+            {% set engines = available_engines|default({}) %}
+            <div class="status-row">
+              <div>
+                <strong>Tesseract</strong>
+                <p class="helper">Fast baseline OCR with preprocessing.</p>
+              </div>
+              <span class="status-pill {{ 'active' if engines.get('tesseract') else 'inactive' }}">
+                {{ 'Ready' if engines.get('tesseract') else 'Missing' }}
+              </span>
+            </div>
+            <div class="status-row">
+              <div>
+                <strong>EasyOCR</strong>
+                <p class="helper">Detector + recognizer for broader handwriting coverage.</p>
+              </div>
+              <span class="status-pill {{ 'active' if engines.get('easyocr') else 'inactive' }}">
+                {{ 'Ready' if engines.get('easyocr') else 'Missing' }}
+              </span>
+            </div>
+            <div class="status-row">
+              <div>
+                <strong>TrOCR</strong>
+                <p class="helper">Transformer model tuned for handwritten text.</p>
+              </div>
+              <span class="status-pill {{ 'active' if engines.get('trocr') else 'inactive' }}">
+                {{ 'Ready' if engines.get('trocr') else 'Missing' }}
+              </span>
+            </div>
+          </div>
+          <p class="footer-note">Dependencies can be installed incrementally. The app will keep running with whichever engines are available.</p>
+        </div>
+      </aside>
+    </section>
   </main>
-  
-  <!-- Footer -->
-  <footer class="bg-body-tertiary text-center text-muted py-3 border-top">
-    <small>&copy; 2025 Neural Script Decoding</small>
-  </footer>
-  
+
   <script>
-    // Theme handling
-    document.addEventListener('DOMContentLoaded', () => {
-      const savedTheme = localStorage.getItem('theme') || 'light';
-      document.documentElement.setAttribute('data-bs-theme', savedTheme);
-      
-      // Initialize starfield after DOM is loaded
-      initStarfield();
-      
-      // Theme toggle
-      document.getElementById('themeToggle').addEventListener('click', () => {
-        const current = document.documentElement.getAttribute('data-bs-theme');
-        const next = current === 'dark' ? 'light' : 'dark';
-        document.documentElement.setAttribute('data-bs-theme', next);
-        localStorage.setItem('theme', next);
-      });
+    const input = document.getElementById('file-input');
+    const label = document.getElementById('file-name');
+
+    input.addEventListener('change', () => {
+      label.textContent = input.files.length ? `Selected: ${input.files[0].name}` : '';
     });
-    
-    function initStarfield() {
-      const canvas = document.getElementById('starfield');
-      const ctx = canvas.getContext('2d');
-      let stars = [];
-      const numStars = 200;
-      
-      function resizeCanvas() {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-        
-        // Initialize stars
-        stars = [];
-        for (let i = 0; i < numStars; i++) {
-          stars.push({
-            x: (Math.random() - 0.5) * canvas.width,
-            y: (Math.random() - 0.5) * canvas.height,
-            z: Math.random() * canvas.width
-          });
-        }
-      }
-      
-      function animate() {
-        // Clear canvas with black background
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-        // Draw stars
-        ctx.fillStyle = 'white';
-        
-        for (let i = 0; i < stars.length; i++) {
-          const star = stars[i];
-          
-          // Move star towards viewer
-          star.z -= 3;
-          
-          // Reset star if it's too close
-          if (star.z <= 0) {
-            star.x = (Math.random() - 0.5) * canvas.width;
-            star.y = (Math.random() - 0.5) * canvas.height;
-            star.z = canvas.width;
-          }
-          
-          // Calculate screen position
-          const k = 128.0 / star.z;
-          const x = star.x * k + canvas.width / 2;
-          const y = star.y * k + canvas.height / 2;
-          
-          // Skip if star is outside screen
-          if (x < 0 || x >= canvas.width || y < 0 || y >= canvas.height) {
-            continue;
-          }
-          
-          // Calculate star size based on distance
-          const size = (1 - star.z / canvas.width) * 3;
-          const opacity = 1 - star.z / canvas.width;
-          
-          // Draw star with trail effect
-          ctx.globalAlpha = opacity;
-          ctx.beginPath();
-          ctx.arc(x, y, size, 0, 2 * Math.PI);
-          ctx.fill();
-          
-          // Draw star trail
-          if (size > 1) {
-            ctx.globalAlpha = opacity * 0.3;
-            ctx.beginPath();
-            ctx.arc(x, y, size * 2, 0, 2 * Math.PI);
-            ctx.fill();
-          }
-        }
-        
-        ctx.globalAlpha = 1;
-        requestAnimationFrame(animate);
-      }
-      
-      // Handle window resize
-      window.addEventListener('resize', resizeCanvas);
-      
-      // Initialize
-      resizeCanvas();
-      animate();
-    }
   </script>
 </body>
 </html>
