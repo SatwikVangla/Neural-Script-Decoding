@@ -17,7 +17,8 @@ def create_app():
         static_folder=os.path.join(package_dir, "..", "static"),
     )
     apply_config(app)
+    logging.getLogger().setLevel(app.config["LOG_LEVEL"])
     os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
-    app.extensions["ocr_engine"] = MultiOCREngine()
+    app.extensions["ocr_engine"] = MultiOCREngine(app.config)
     register_routes(app)
     return app

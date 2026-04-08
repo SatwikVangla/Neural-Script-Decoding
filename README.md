@@ -31,6 +31,7 @@ Neural Script Decoding is a Flask application for extracting text from handwritt
 - Python 3.11+
 - Tesseract installed on the host if you want the Tesseract engine
 - Ollama running locally if you want LLM correction
+- EasyOCR and TrOCR are disabled by default and must be explicitly enabled
 
 ## Installation
 
@@ -49,6 +50,33 @@ pip install -r requirements-ocr.txt
 pip install -r requirements-dev.txt
 ```
 
+### Tesseract Setup
+
+Ubuntu/Debian:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y tesseract-ocr
+```
+
+macOS with Homebrew:
+
+```bash
+brew install tesseract
+```
+
+Windows:
+
+1. Install Tesseract OCR from a Windows distribution.
+2. Add the Tesseract install directory to `PATH`.
+
+### Ollama Setup
+
+```bash
+ollama serve
+ollama pull mistral
+```
+
 ## Configuration
 
 The app reads configuration from environment variables.
@@ -58,6 +86,14 @@ The app reads configuration from environment variables.
 | `FLASK_SECRET_KEY` | random per process | Session signing |
 | `UPLOAD_FOLDER` | `static/uploads` | Upload and generated PDF location |
 | `MAX_CONTENT_LENGTH_MB` | `16` | Upload size limit in megabytes |
+| `APP_HOST` | `0.0.0.0` | Host for the built-in Flask server |
+| `APP_PORT` | `5000` | Port for the built-in Flask server |
+| `APP_DEBUG` | `false` | Enable Flask debug mode |
+| `LOG_LEVEL` | `INFO` | Application log level |
+| `ENABLE_TESSERACT` | `true` | Enable the Tesseract engine |
+| `ENABLE_EASYOCR` | `false` | Enable the EasyOCR engine |
+| `ENABLE_TROCR` | `false` | Enable the TrOCR engine |
+| `OLLAMA_STATUS_TIMEOUT` | `1.0` | Timeout for Ollama reachability checks |
 | `OLLAMA_URL` | `http://localhost:11434/api/generate` | Ollama generate endpoint |
 | `OLLAMA_MODEL` | `mistral` | Ollama model name |
 
@@ -66,6 +102,7 @@ Example:
 ```bash
 export FLASK_SECRET_KEY="replace-me"
 export OLLAMA_MODEL="mistral"
+export ENABLE_EASYOCR="true"
 ```
 
 ## Running the App
@@ -85,6 +122,7 @@ pytest
 ```
 
 The tests use mocked OCR and PDF generation, so they do not require model downloads or a running Ollama instance.
+The suite also includes a real Tesseract integration test that generates a small fixture image at runtime and skips automatically when Tesseract is unavailable.
 
 ## Continuous Integration
 
@@ -105,11 +143,11 @@ docker build -t neural-script-decoding .
 docker run --rm -p 5000:5000 neural-script-decoding
 ```
 
-The container installs Tesseract. Optional EasyOCR and TrOCR dependencies are still excluded by default; add `requirements-ocr.txt` to the image if you want those engines available in deployment.
+The container installs Tesseract. Optional EasyOCR and TrOCR dependencies are still excluded by default; add `requirements-ocr.txt` to the image and set `ENABLE_EASYOCR=true` or `ENABLE_TROCR=true` if you want those engines enabled in deployment.
 
 ## Notes
 
 - `static/uploads/` is intentionally gitignored except for `.gitkeep`.
-- If only some OCR dependencies are installed, the UI and `/health` endpoint will report which engines are currently available.
+- If only some OCR dependencies are installed, or if engines are disabled by configuration, the UI and `/health` endpoint will report that explicitly.
 - `app.py` is the stable entrypoint for local runs and deployment wrappers.
 - `app1.py` contains the actual application implementation.

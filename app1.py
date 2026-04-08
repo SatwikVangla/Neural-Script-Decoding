@@ -6,4 +6,8 @@ ocr_engine = app.extensions["ocr_engine"]
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    app.run(
+        debug=app.config["APP_DEBUG"],
+        host=app.config["APP_HOST"],
+        port=app.config["APP_PORT"],
+    )

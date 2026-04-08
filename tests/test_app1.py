@@ -28,7 +28,17 @@ def client(tmp_path, monkeypatch):
         ],
     )
     monkeypatch.setattr(app1.ocr_engine, "combine_results", lambda results: results[0]["text"])
+    monkeypatch.setattr(
+        app1.ocr_engine,
+        "available_summary",
+        lambda: {
+            "tesseract": {"enabled": True, "installed": True, "ready": True, "reason": "Ready"},
+            "easyocr": {"enabled": False, "installed": False, "ready": False, "reason": "Disabled by configuration"},
+            "trocr": {"enabled": False, "installed": False, "ready": False, "reason": "Disabled by configuration"},
+        },
+    )
     monkeypatch.setattr(web, "correct_text_with_llm", lambda text, _config: f"fixed {text}")
+    monkeypatch.setattr(web, "ollama_status", lambda _config: {"configured": True, "reachable": False, "reason": "Connection refused"})
 
     def fake_pdf(text, output_path, _font_path):
         Path(output_path).write_text(text, encoding="utf-8")
@@ -78,6 +88,7 @@ def test_api_ocr_returns_json_and_cleans_temp_files(client):
     assert payload["success"] is True
     assert payload["raw_text"] == "raw text"
     assert payload["corrected_text"] == "fixed raw text"
+    assert payload["system"]["engines"]["tesseract"]["ready"] is True
 
     upload_dir = Path(app1.app.config["UPLOAD_FOLDER"])
     assert list(upload_dir.iterdir()) == []
@@ -96,20 +107,27 @@ def test_health_reports_engine_status(client):
     assert response.status_code == 200
     data = response.get_json()
     assert data["status"] == "healthy"
-    assert set(data["engines"]) == {"tesseract", "easyocr", "trocr"}
+    assert set(data["system"]["engines"]) == {"tesseract", "easyocr", "trocr"}
+    assert data["system"]["ollama"]["reachable"] is False
 
 
 def test_index_shows_missing_engine_status(client, monkeypatch):
     monkeypatch.setattr(
         app1.ocr_engine,
         "available_summary",
-        lambda: {"tesseract": False, "easyocr": False, "trocr": False},
+        lambda: {
+            "tesseract": {"enabled": False, "installed": True, "ready": False, "reason": "Disabled by configuration"},
+            "easyocr": {"enabled": False, "installed": False, "ready": False, "reason": "Disabled by configuration"},
+            "trocr": {"enabled": False, "installed": False, "ready": False, "reason": "Disabled by configuration"},
+        },
     )
+    monkeypatch.setattr(web, "ollama_status", lambda _config: {"configured": True, "reachable": False, "reason": "Offline"})
 
     response = client.get("/")
 
     assert response.status_code == 200
-    assert response.data.count(b"Missing") == 3
+    assert response.data.count(b"Unavailable") == 3
+    assert b"Offline" in response.data
 
 
 def test_download_blocks_path_traversal(client):

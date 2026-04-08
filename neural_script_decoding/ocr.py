@@ -46,46 +46,88 @@ def dependency_available(*modules):
 
 
 class MultiOCREngine:
-    def __init__(self):
+    def __init__(self, config=None):
+        self.config = config or {}
         self.engines = {
             "easyocr": None,
             "trocr_processor": None,
             "trocr_model": None,
             "tesseract": True,
         }
+        self.status = {
+            "tesseract": self._make_status("Tesseract", enabled=self.config.get("ENABLE_TESSERACT", True)),
+            "easyocr": self._make_status("EasyOCR", enabled=self.config.get("ENABLE_EASYOCR", False)),
+            "trocr": self._make_status("TrOCR", enabled=self.config.get("ENABLE_TROCR", False)),
+        }
         self.initialized = False
+
+    def _make_status(self, label, enabled, installed=False, ready=False, reason="Not initialized"):
+        return {
+            "label": label,
+            "enabled": enabled,
+            "installed": installed,
+            "ready": ready,
+            "reason": reason,
+        }
+
+    def _update_status(self, key, *, installed, ready, reason):
+        self.status[key].update({"installed": installed, "ready": ready, "reason": reason})
 
     def initialize_engines(self):
         if self.initialized:
             return
 
         try:
-            if dependency_available(easyocr, torch):
+            if not self.config.get("ENABLE_EASYOCR", False):
+                self._update_status("easyocr", installed=dependency_available(easyocr, torch), ready=False, reason="Disabled by configuration")
+            elif dependency_available(easyocr, torch):
                 self.engines["easyocr"] = easyocr.Reader(["en"], gpu=torch.cuda.is_available())
                 logger.info("EasyOCR initialized successfully")
+                self._update_status("easyocr", installed=True, ready=True, reason="Ready")
             else:
                 logger.warning("EasyOCR dependencies are not installed")
+                self._update_status("easyocr", installed=False, ready=False, reason="Dependencies not installed")
         except Exception as exc:
             logger.error("Failed to initialize EasyOCR: %s", exc)
             self.engines["easyocr"] = None
+            self._update_status("easyocr", installed=True, ready=False, reason=str(exc))
 
         try:
-            if dependency_available(torch, TrOCRProcessor, VisionEncoderDecoderModel):
+            if not self.config.get("ENABLE_TROCR", False):
+                self._update_status(
+                    "trocr",
+                    installed=dependency_available(torch, TrOCRProcessor, VisionEncoderDecoderModel),
+                    ready=False,
+                    reason="Disabled by configuration",
+                )
+            elif dependency_available(torch, TrOCRProcessor, VisionEncoderDecoderModel):
                 self.engines["trocr_processor"] = TrOCRProcessor.from_pretrained("microsoft/trocr-base-handwritten")
                 self.engines["trocr_model"] = VisionEncoderDecoderModel.from_pretrained("microsoft/trocr-base-handwritten")
                 logger.info("TrOCR initialized successfully")
+                self._update_status("trocr", installed=True, ready=True, reason="Ready")
             else:
                 logger.warning("TrOCR dependencies are not installed")
+                self._update_status("trocr", installed=False, ready=False, reason="Dependencies not installed")
         except Exception as exc:
             logger.error("Failed to initialize TrOCR: %s", exc)
             self.engines["trocr_processor"] = None
             self.engines["trocr_model"] = None
+            self._update_status("trocr", installed=True, ready=False, reason=str(exc))
 
-        self.engines["tesseract"] = dependency_available(pytesseract, Image, np, cv2)
-        if self.engines["tesseract"]:
+        self.engines["tesseract"] = self.config.get("ENABLE_TESSERACT", True) and dependency_available(pytesseract, Image, np, cv2)
+        if not self.config.get("ENABLE_TESSERACT", True):
+            self._update_status(
+                "tesseract",
+                installed=dependency_available(pytesseract, Image, np, cv2),
+                ready=False,
+                reason="Disabled by configuration",
+            )
+        elif self.engines["tesseract"]:
             logger.info("Tesseract OCR ready")
+            self._update_status("tesseract", installed=True, ready=True, reason="Ready")
         else:
             logger.warning("Tesseract dependencies are not installed")
+            self._update_status("tesseract", installed=False, ready=False, reason="Dependencies not installed")
         self.initialized = True
 
     def preprocess_image(self, image_path):
@@ -186,8 +228,4 @@ class MultiOCREngine:
         return best_result["text"]
 
     def available_summary(self):
-        return {
-            "tesseract": bool(self.engines.get("tesseract")),
-            "easyocr": self.engines.get("easyocr") is not None,
-            "trocr": self.engines.get("trocr_model") is not None,
-        }
+        return self.status

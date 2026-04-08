@@ -62,38 +62,49 @@
       <aside class="panel stagger">
         <div class="panel-inner">
           <p class="section-label">System Status</p>
-          <h2 class="section-title">Available engines</h2>
+          <h2 class="section-title">Runtime readiness</h2>
           <div class="status-list">
-            {% set engines = available_engines|default({}) %}
+            {% set system = system_status|default({}) %}
+            {% set engines = system.get('engines', {}) %}
             <div class="status-row">
               <div>
                 <strong>Tesseract</strong>
-                <p class="helper">Fast baseline OCR with preprocessing.</p>
+                <p class="helper">Fast baseline OCR with preprocessing. {{ engines.get('tesseract', {}).get('reason', 'Unknown') }}</p>
               </div>
-              <span class="status-pill {{ 'active' if engines.get('tesseract') else 'inactive' }}">
-                {{ 'Ready' if engines.get('tesseract') else 'Missing' }}
+              <span class="status-pill {{ 'active' if engines.get('tesseract', {}).get('ready') else 'inactive' }}">
+                {{ 'Ready' if engines.get('tesseract', {}).get('ready') else 'Unavailable' }}
               </span>
             </div>
             <div class="status-row">
               <div>
                 <strong>EasyOCR</strong>
-                <p class="helper">Detector + recognizer for broader handwriting coverage.</p>
+                <p class="helper">Detector + recognizer for broader handwriting coverage. {{ engines.get('easyocr', {}).get('reason', 'Unknown') }}</p>
               </div>
-              <span class="status-pill {{ 'active' if engines.get('easyocr') else 'inactive' }}">
-                {{ 'Ready' if engines.get('easyocr') else 'Missing' }}
+              <span class="status-pill {{ 'active' if engines.get('easyocr', {}).get('ready') else 'inactive' }}">
+                {{ 'Ready' if engines.get('easyocr', {}).get('ready') else 'Unavailable' }}
               </span>
             </div>
             <div class="status-row">
               <div>
                 <strong>TrOCR</strong>
-                <p class="helper">Transformer model tuned for handwritten text.</p>
+                <p class="helper">Transformer model tuned for handwritten text. {{ engines.get('trocr', {}).get('reason', 'Unknown') }}</p>
               </div>
-              <span class="status-pill {{ 'active' if engines.get('trocr') else 'inactive' }}">
-                {{ 'Ready' if engines.get('trocr') else 'Missing' }}
+              <span class="status-pill {{ 'active' if engines.get('trocr', {}).get('ready') else 'inactive' }}">
+                {{ 'Ready' if engines.get('trocr', {}).get('ready') else 'Unavailable' }}
+              </span>
+            </div>
+            {% set ollama = system.get('ollama', {}) %}
+            <div class="status-row">
+              <div>
+                <strong>Ollama</strong>
+                <p class="helper">Local correction service. {{ ollama.get('reason', 'Unknown') }}</p>
+              </div>
+              <span class="status-pill {{ 'active' if ollama.get('reachable') else 'inactive' }}">
+                {{ 'Reachable' if ollama.get('reachable') else 'Offline' }}
               </span>
             </div>
           </div>
-          <p class="footer-note">Dependencies can be installed incrementally. The app will keep running with whichever engines are available.</p>
+          <p class="footer-note">Heavy engines are opt-in. Enable EasyOCR or TrOCR with environment flags when you want the extra model load.</p>
         </div>
       </aside>
     </section>

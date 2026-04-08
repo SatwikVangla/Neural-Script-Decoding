@@ -105,18 +105,23 @@
           </div>
 
           <div class="meta-grid">
-            {% set engines = available_engines|default({}) %}
+            {% set system = system_status|default({}) %}
+            {% set engines = system.get('engines', {}) %}
             <div class="meta-card stagger">
               <strong>Tesseract</strong>
-              <span>{{ 'Available' if engines.get('tesseract') else 'Unavailable' }}</span>
+              <span>{{ engines.get('tesseract', {}).get('reason', 'Unknown') }}</span>
             </div>
             <div class="meta-card stagger">
               <strong>EasyOCR</strong>
-              <span>{{ 'Available' if engines.get('easyocr') else 'Unavailable' }}</span>
+              <span>{{ engines.get('easyocr', {}).get('reason', 'Unknown') }}</span>
             </div>
             <div class="meta-card stagger">
               <strong>TrOCR</strong>
-              <span>{{ 'Available' if engines.get('trocr') else 'Unavailable' }}</span>
+              <span>{{ engines.get('trocr', {}).get('reason', 'Unknown') }}</span>
+            </div>
+            <div class="meta-card stagger">
+              <strong>Ollama</strong>
+              <span>{{ system.get('ollama', {}).get('reason', 'Unknown') }}</span>
             </div>
           </div>
 

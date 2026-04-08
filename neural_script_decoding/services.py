@@ -37,6 +37,21 @@ Return only the corrected text without any explanations:
         return f"[Error: LLM offline - {exc}]"
 
 
+def ollama_status(config):
+    url = config.get("OLLAMA_URL")
+    if not url:
+        return {"configured": False, "reachable": False, "reason": "OLLAMA_URL is not configured"}
+
+    try:
+        response = requests.get(url.replace("/api/generate", "/api/tags"), timeout=config.get("OLLAMA_STATUS_TIMEOUT", 1.0))
+        if response.ok:
+            return {"configured": True, "reachable": True, "reason": "Ready"}
+        return {"configured": True, "reachable": False, "reason": f"HTTP {response.status_code}"}
+    except requests.exceptions.RequestException as exc:
+        logger.info("Ollama status check failed: %s", exc)
+        return {"configured": True, "reachable": False, "reason": str(exc)}
+
+
 def generate_pdf(text, output_path, font_path):
     if FPDF is None:
         raise RuntimeError("FPDF is not installed")

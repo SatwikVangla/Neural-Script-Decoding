@@ -5,7 +5,7 @@ from datetime import datetime
 from flask import abort, current_app, flash, jsonify, redirect, render_template, request, send_from_directory, url_for
 
 from .files import allowed_file, build_upload_paths, cleanup_files
-from .services import correct_text_with_llm, generate_pdf
+from .services import correct_text_with_llm, generate_pdf, ollama_status
 
 
 logger = logging.getLogger(__name__)
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 def register_routes(app):
     @app.route("/")
     def index():
-        return render_template("index.html", available_engines=_ocr_engine().available_summary())
+        return render_template("index.html", system_status=_system_status())
 
     @app.route("/upload", methods=["POST"])
     def upload_file():
@@ -44,7 +44,7 @@ def register_routes(app):
                     raw_text=raw_text,
                     corrected_text=corrected_text,
                     pdf_path=paths["pdf_path"],
-                    available_engines=_ocr_engine().available_summary(),
+                    system_status=_system_status(),
                 )
             except Exception as exc:
                 logger.error("Processing failed: %s", exc)
@@ -62,6 +62,7 @@ def register_routes(app):
             abort(404)
         file_path = os.path.join(current_app.config["UPLOAD_FOLDER"], safe_name)
         if os.path.exists(file_path):
+            logger.info("Serving generated PDF %s", safe_name)
             return send_from_directory(current_app.config["UPLOAD_FOLDER"], safe_name, as_attachment=True)
         flash("File not found")
         return redirect(url_for("index"))
@@ -79,6 +80,7 @@ def register_routes(app):
         try:
             paths = build_upload_paths(current_app.config["UPLOAD_FOLDER"], file.filename)
             file.save(paths["file_path"])
+            logger.info("API OCR request for %s", paths["filename"])
             ocr_results = _ocr_engine().process_with_all_engines(paths["file_path"])
             combined_text = _ocr_engine().combine_results(ocr_results)
             corrected_text = correct_text_with_llm(combined_text, current_app.config)
@@ -88,10 +90,11 @@ def register_routes(app):
                     "ocr_results": ocr_results,
                     "raw_text": combined_text,
                     "corrected_text": corrected_text,
-                    "engines": _ocr_engine().available_summary(),
+                    "system": _system_status(),
                 }
             )
         except Exception as exc:
+            logger.exception("API OCR failed")
             return jsonify({"error": str(exc)}), 500
         finally:
             if paths:
@@ -99,11 +102,12 @@ def register_routes(app):
 
     @app.route("/health")
     def health_check():
+        logger.info("Health check requested")
         return jsonify(
             {
                 "status": "healthy",
                 "initialized": _ocr_engine().initialized,
-                "engines": _ocr_engine().available_summary(),
+                "system": _system_status(),
                 "timestamp": datetime.now().isoformat(),
             }
         )
@@ -111,3 +115,11 @@ def register_routes(app):
 
 def _ocr_engine():
     return current_app.extensions["ocr_engine"]
+
+
+def _system_status():
+    _ocr_engine().initialize_engines()
+    return {
+        "engines": _ocr_engine().available_summary(),
+        "ollama": ollama_status(current_app.config),
+    }
