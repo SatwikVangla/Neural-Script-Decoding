@@ -183,21 +183,26 @@ def register_routes(app):
             return jsonify({"error": "Invalid file type"}), 400
 
         paths = build_upload_paths(current_app.config["UPLOAD_FOLDER"], file.filename)
-        file.save(paths["file_path"])
-        logger.info("Queued async OCR request for %s", paths["filename"])
-        job = _job_manager().submit(paths=paths, system_status=_system_status())
-        return (
-            jsonify(
-                {
-                    "success": True,
-                    "job_id": job["id"],
-                    "status": job["status"],
-                    "status_url": url_for("api_ocr_job_status", job_id=job["id"]),
-                    "created_at": job["created_at"],
-                }
-            ),
-            202,
-        )
+        try:
+            file.save(paths["file_path"])
+            logger.info("Queued async OCR request for %s", paths["filename"])
+            job = _job_manager().submit(paths=paths, system_status=_system_status())
+            return (
+                jsonify(
+                    {
+                        "success": True,
+                        "job_id": job["id"],
+                        "status": job["status"],
+                        "status_url": url_for("api_ocr_job_status", job_id=job["id"]),
+                        "created_at": job["created_at"],
+                    }
+                ),
+                202,
+            )
+        except Exception as exc:
+            logger.exception("Async OCR queue submission failed")
+            cleanup_files(paths["file_path"], paths["preprocessed_path"], paths["preview_path"], paths["overlay_path"])
+            return jsonify({"error": str(exc)}), 500
 
     @app.route("/api/ocr/jobs/<job_id>", methods=["GET"])
     def api_ocr_job_status(job_id):

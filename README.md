@@ -155,6 +155,10 @@ The app reads configuration from environment variables.
 | `APP_DEBUG` | `false` | Enable Flask debug mode |
 | `LOG_LEVEL` | `INFO` | Application log level |
 | `BACKGROUND_OCR_WORKERS` | `2` | Number of in-process OCR background workers |
+| `BACKGROUND_JOB_TIMEOUT` | `300` | Queue job timeout in seconds |
+| `OCR_QUEUE_BACKEND` | `local` | `local` for in-process jobs, `redis` for external queue workers |
+| `OCR_QUEUE_NAME` | `ocr` | Queue name used by async OCR jobs |
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection URL for queued OCR jobs |
 | `ENABLE_TESSERACT` | `true` | Enable the Tesseract engine |
 | `ENABLE_EASYOCR` | `false` | Enable the EasyOCR engine |
 | `ENABLE_TROCR` | `false` | Enable the TrOCR engine |
@@ -263,11 +267,13 @@ curl http://127.0.0.1:5000/api/ocr/jobs/<job_id>
 
 When the job completes, the status response includes the same OCR payload as `/api/ocr` plus `run_id`, `pdf_url`, `preview_url`, and `overlay_url`.
 
-This background queue is intentionally in-process and lightweight. It reduces request latency for local development and small deployments, but it is not a durable distributed worker system.
+With `OCR_QUEUE_BACKEND=local`, this stays as an in-process queue for simple local development.
+
+For a durable external queue, set `OCR_QUEUE_BACKEND=redis` and run a separate worker process. The included Docker Compose stack does that for you by starting Redis plus a dedicated OCR worker container.
 
 ## Docker Compose
 
-Run the web app and Ollama together:
+Run the web app, Redis worker queue, and Ollama together:
 
 ```bash
 cp .env.example .env
@@ -289,6 +295,8 @@ http://127.0.0.1:5000
 Notes:
 
 - The app container uses `http://ollama:11434/api/generate` internally.
+- The Compose stack sets `OCR_QUEUE_BACKEND=redis` and `REDIS_URL=redis://redis:6379/0` for the app and worker.
+- The `worker` service runs `scripts/run_ocr_worker.py` and processes queued OCR jobs outside the web process.
 - Ollama data is stored in the named volume `ollama_data`.
 - Uploaded files and the SQLite database are stored in named Docker volumes as well.
 - If Docker commands fail with a permissions error, add your user to the `docker` group and start a new shell session.

@@ -9,7 +9,7 @@ from flask import Flask
 
 import app
 import app1
-from neural_script_decoding.background_jobs import OCRJobManager
+from neural_script_decoding.background_jobs import InProcessOCRJobManager, create_job_manager
 from neural_script_decoding.config import apply_config
 from neural_script_decoding import services
 from neural_script_decoding import web
@@ -31,7 +31,7 @@ def client(tmp_path, monkeypatch):
         WTF_CSRF_ENABLED=False,
     )
     init_db(app1.app.config["DATABASE_PATH"])
-    app1.app.extensions["ocr_job_manager"] = OCRJobManager(config=app1.app.config, ocr_engine=app1.ocr_engine)
+    app1.app.extensions["ocr_job_manager"] = InProcessOCRJobManager(config=app1.app.config, ocr_engine=app1.ocr_engine)
 
     monkeypatch.setattr(
         app1.ocr_engine,
@@ -393,6 +393,12 @@ def test_apply_config_accepts_secret_key_in_production(monkeypatch):
     apply_config(flask_app)
 
     assert flask_app.secret_key == "test-secret"
+
+
+def test_job_manager_factory_uses_local_backend_by_default():
+    manager = create_job_manager(config=app1.app.config, ocr_engine=app1.ocr_engine)
+
+    assert manager.summary()["backend"] == "local"
 
 
 def test_health_reports_engine_status(client):

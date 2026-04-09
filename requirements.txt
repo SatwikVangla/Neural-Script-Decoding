@@ -7,3 +7,5 @@ numpy>=1.26,<3.0
 opencv-python-headless>=4.10,<5.0
 pytesseract>=0.3.10,<0.4
 fpdf2>=2.8,<3.0
+redis>=5.0,<6.0
+rq>=1.16,<2.0
