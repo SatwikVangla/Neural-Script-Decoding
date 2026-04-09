@@ -46,7 +46,7 @@
             <div class="status-row">
               <div>
                 <strong>Current session</strong>
-                <p class="helper">{{ operations.web.current_user or 'No active session' }}</p>
+                <p class="helper">{{ operations.web.current_user or 'No active session' }}{% if operations.web.current_role %} ({{ operations.web.current_role }}){% endif %}</p>
               </div>
               <span class="status-pill {{ 'active' if operations.web.current_user else 'inactive' }}">
                 {{ 'Signed in' if operations.web.current_user else 'Anonymous' }}
@@ -140,6 +140,7 @@
           <p class="section-label">Users</p>
           <h2 class="section-title">Stored admin accounts</h2>
           <form method="post" action="{{ url_for('create_or_update_user') }}" class="upload-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <label>
               <strong>Username</strong>
               <input class="history-input" type="text" name="username" required>
@@ -147,6 +148,13 @@
             <label>
               <strong>Password</strong>
               <input class="history-input" type="password" name="password" required>
+            </label>
+            <label>
+              <strong>Role</strong>
+              <select class="history-select" name="role">
+                <option value="viewer">Viewer</option>
+                <option value="admin">Admin</option>
+              </select>
             </label>
             <div class="actions-row">
               <button class="button" type="submit">Create or Update User</button>
@@ -158,11 +166,12 @@
               <div class="history-item stagger">
                 <div>
                   <strong>{{ user.username }}</strong>
-                  <p class="helper">Created {{ user.created_at }} | Last login {{ user.last_login_at or 'never' }}</p>
+                  <p class="helper">Role {{ user.role }} | Created {{ user.created_at }} | Last login {{ user.last_login_at or 'never' }}</p>
                 </div>
                 <div class="history-meta">
                   <span>{{ 'Active' if user.is_active else 'Inactive' }}</span>
                   <form method="post" action="{{ url_for('rotate_user_password', username=user.username) }}" class="inline-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input class="history-input" type="password" name="password" placeholder="New password" required>
                     <button class="ghost-button" type="submit">Rotate Password</button>
                   </form>

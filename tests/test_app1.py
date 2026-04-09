@@ -577,6 +577,38 @@ def test_login_allows_session_access_when_auth_enabled(client):
     assert any(event["action"] == "login_success" for event in audit_events)
 
 
+def test_viewer_cannot_access_system_admin(client):
+    app1.app.config["AUTH_REQUIRED"] = True
+    upsert_user(
+        app1.app.config["DATABASE_PATH"],
+        username="viewer",
+        password_hash=generate_password_hash("viewer-pass"),
+        is_active=True,
+        role="viewer",
+    )
+
+    client.post("/login", data={"username": "viewer", "password": "viewer-pass"})
+    response = client.get("/system")
+
+    assert response.status_code == 403
+
+
+def test_admin_post_requires_csrf_token(client):
+    app1.app.config["AUTH_REQUIRED"] = True
+    upsert_user(
+        app1.app.config["DATABASE_PATH"],
+        username="admin",
+        password_hash=generate_password_hash("secret-pass"),
+        is_active=True,
+        role="admin",
+    )
+
+    client.post("/login", data={"username": "admin", "password": "secret-pass"})
+    response = client.post("/system/users", data={"username": "new-user", "password": "pw", "role": "viewer"})
+
+    assert response.status_code == 400
+
+
 def test_job_manager_factory_uses_local_backend_by_default():
     manager = create_job_manager(config=app1.app.config, ocr_engine=app1.ocr_engine)
 

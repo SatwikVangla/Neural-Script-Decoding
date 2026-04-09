@@ -33,11 +33,13 @@
         <div class="actions-row">
           {% if job.status == 'queued' %}
             <form method="post" action="{{ url_for('cancel_job', job_id=job.id) }}" class="inline-form">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button class="ghost-button danger-button" type="submit">Cancel Job</button>
             </form>
           {% endif %}
           {% if job.status in ['failed', 'canceled'] %}
             <form method="post" action="{{ url_for('retry_job', job_id=job.id) }}" class="inline-form">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button class="ghost-button" type="submit">Retry Job</button>
             </form>
           {% endif %}

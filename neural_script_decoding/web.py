@@ -1,6 +1,7 @@
 import logging
 import os
 import json
+import secrets
 import time
 from datetime import datetime
 from functools import wraps
@@ -35,6 +36,12 @@ def register_routes(app):
     def load_auth_context():
         g.is_authenticated = bool(session.get("authenticated"))
         g.auth_required = current_app.config.get("AUTH_REQUIRED", False)
+        g.current_user = _current_user()
+        g.is_admin = bool(g.current_user and g.current_user.get("role") == "admin")
+
+    @app.context_processor
+    def inject_csrf_token():
+        return {"csrf_token": _csrf_token}
 
     @app.route("/")
     @require_login
@@ -51,6 +58,7 @@ def register_routes(app):
             if _authenticate(username, password):
                 session["authenticated"] = True
                 session["username"] = username
+                session["role"] = get_user_by_username(current_app.config["DATABASE_PATH"], username)["role"]
                 touch_user_login(current_app.config["DATABASE_PATH"], username)
                 create_audit_log(
                     current_app.config["DATABASE_PATH"],
@@ -73,6 +81,7 @@ def register_routes(app):
 
     @app.route("/logout", methods=["POST"])
     @require_login
+    @require_csrf
     def logout():
         create_audit_log(
             current_app.config["DATABASE_PATH"],
@@ -114,7 +123,7 @@ def register_routes(app):
         )
 
     @app.route("/system")
-    @require_login
+    @require_admin
     def system_admin():
         return render_template(
             "system.html",
@@ -125,12 +134,17 @@ def register_routes(app):
         )
 
     @app.route("/system/users", methods=["POST"])
-    @require_login
+    @require_admin
+    @require_csrf
     def create_or_update_user():
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
+        role = request.form.get("role", "viewer").strip() or "viewer"
         if not username or not password:
             flash("Username and password are required")
+            return redirect(url_for("system_admin"))
+        if role not in {"admin", "viewer"}:
+            flash("Invalid role")
             return redirect(url_for("system_admin"))
 
         existed = get_user_by_username(current_app.config["DATABASE_PATH"], username) is not None
@@ -139,6 +153,7 @@ def register_routes(app):
             username=username,
             password_hash=generate_password_hash(password),
             is_active=True,
+            role=role,
         )
         create_audit_log(
             current_app.config["DATABASE_PATH"],
@@ -146,12 +161,14 @@ def register_routes(app):
             action="user_created" if not existed else "user_updated",
             target_type="user",
             target_id=username,
+            details={"role": role},
         )
         flash("User saved")
         return redirect(url_for("system_admin"))
 
     @app.route("/system/users/<username>/password", methods=["POST"])
-    @require_login
+    @require_admin
+    @require_csrf
     def rotate_user_password(username):
         password = request.form.get("password", "")
         if not password:
@@ -211,6 +228,7 @@ def register_routes(app):
 
     @app.route("/history/<int:run_id>/delete", methods=["POST"])
     @require_login
+    @require_csrf
     def delete_history_run(run_id):
         deleted = delete_run(current_app.config["DATABASE_PATH"], run_id)
         if deleted is None:
@@ -421,6 +439,7 @@ def register_routes(app):
 
     @app.route("/jobs/<job_id>/cancel", methods=["POST"])
     @require_login
+    @require_csrf
     def cancel_job(job_id):
         job = _job_manager().cancel(job_id)
         if job is None:
@@ -433,6 +452,7 @@ def register_routes(app):
 
     @app.route("/jobs/<job_id>/retry", methods=["POST"])
     @require_login
+    @require_csrf
     def retry_job(job_id):
         job = _job_manager().retry(job_id)
         if job is None:
@@ -546,6 +566,7 @@ def _operations_snapshot():
             "auth_required": bool(current_app.config.get("AUTH_REQUIRED", False)),
             "admin_username": current_app.config.get("ADMIN_USERNAME", ""),
             "current_user": session.get("username", ""),
+            "current_role": session.get("role", ""),
         },
         "api": {
             "auth_required": bool(current_app.config.get("API_KEY", "").strip()),
@@ -616,6 +637,33 @@ def require_login(view):
     return wrapped
 
 
+def require_admin(view):
+    @wraps(view)
+    @require_login
+    def wrapped(*args, **kwargs):
+        if not current_app.config.get("AUTH_REQUIRED", False):
+            return view(*args, **kwargs)
+        user = _current_user()
+        if user and user.get("role") == "admin":
+            return view(*args, **kwargs)
+        abort(403)
+
+    return wrapped
+
+
+def require_csrf(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not current_app.config.get("AUTH_REQUIRED", False):
+            return view(*args, **kwargs)
+        token = request.form.get("csrf_token", "")
+        if not token or token != session.get("csrf_token"):
+            abort(400)
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
 def _enforce_rate_limit():
     limit = current_app.config.get("API_RATE_LIMIT", 0)
     window = current_app.config.get("API_RATE_WINDOW_SECONDS", 60)
@@ -645,6 +693,21 @@ def _authenticate(username, password):
 
 def _session_authenticated():
     return bool(session.get("authenticated"))
+
+
+def _current_user():
+    username = session.get("username")
+    if not username:
+        return None
+    return get_user_by_username(current_app.config["DATABASE_PATH"], username)
+
+
+def _csrf_token():
+    token = session.get("csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["csrf_token"] = token
+    return token
 
 
 def _prune_saved_runs():

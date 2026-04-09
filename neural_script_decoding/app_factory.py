@@ -28,6 +28,7 @@ def create_app():
             username=app.config["ADMIN_USERNAME"],
             password_hash=app.config["ADMIN_PASSWORD_HASH"],
             is_active=True,
+            role="admin",
         )
     app.extensions["ocr_engine"] = MultiOCREngine(app.config)
     app.extensions["ocr_job_manager"] = create_job_manager(config=app.config, ocr_engine=app.extensions["ocr_engine"])

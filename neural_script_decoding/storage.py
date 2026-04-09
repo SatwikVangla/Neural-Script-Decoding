@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'viewer',
     is_active INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -118,6 +119,9 @@ def init_db(database_path):
             connection.execute("ALTER TABLE ocr_runs ADD COLUMN preview_file_name TEXT")
         if "overlay_file_name" not in columns:
             connection.execute("ALTER TABLE ocr_runs ADD COLUMN overlay_file_name TEXT")
+        user_columns = [row[1] for row in connection.execute("PRAGMA table_info(users)").fetchall()]
+        if "role" not in user_columns:
+            connection.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'viewer'")
         connection.commit()
 
 
@@ -374,7 +378,7 @@ def _deserialize_job(row):
     return row
 
 
-def upsert_user(database_path, *, username, password_hash, is_active=True):
+def upsert_user(database_path, *, username, password_hash, is_active=True, role="viewer"):
     now = datetime.now(timezone.utc).isoformat()
     with sqlite3.connect(database_path) as connection:
         existing = connection.execute(
@@ -385,18 +389,18 @@ def upsert_user(database_path, *, username, password_hash, is_active=True):
             connection.execute(
                 """
                 UPDATE users
-                SET password_hash = ?, is_active = ?, updated_at = ?
+                SET password_hash = ?, is_active = ?, role = ?, updated_at = ?
                 WHERE username = ?
                 """,
-                (password_hash, int(is_active), now, username),
+                (password_hash, int(is_active), role, now, username),
             )
         else:
             connection.execute(
                 """
-                INSERT INTO users (username, password_hash, is_active, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO users (username, password_hash, role, is_active, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (username, password_hash, int(is_active), now, now),
+                (username, password_hash, role, int(is_active), now, now),
             )
         connection.commit()
     return get_user_by_username(database_path, username)
@@ -407,7 +411,7 @@ def get_user_by_username(database_path, username):
         connection.row_factory = sqlite3.Row
         row = connection.execute(
             """
-            SELECT id, username, password_hash, is_active, created_at, updated_at, last_login_at
+            SELECT id, username, password_hash, role, is_active, created_at, updated_at, last_login_at
             FROM users
             WHERE username = ?
             """,
@@ -421,7 +425,7 @@ def list_users(database_path):
         connection.row_factory = sqlite3.Row
         rows = connection.execute(
             """
-            SELECT id, username, is_active, created_at, updated_at, last_login_at
+            SELECT id, username, role, is_active, created_at, updated_at, last_login_at
             FROM users
             ORDER BY username ASC
             """
