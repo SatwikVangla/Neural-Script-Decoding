@@ -2,6 +2,13 @@ import os
 from pathlib import Path
 
 
+TRUTHY = {"1", "true", "yes", "on"}
+
+
+def _env_flag(name, default):
+    return os.environ.get(name, default).lower() in TRUTHY
+
+
 def apply_config(app):
     project_root = Path(__file__).resolve().parent.parent
 
@@ -11,7 +18,13 @@ def apply_config(app):
             return str(raw)
         return str((project_root / raw).resolve())
 
-    app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(32))
+    app.config["APP_ENV"] = os.environ.get("APP_ENV", "development").lower()
+    app.config["APP_DEBUG"] = _env_flag("APP_DEBUG", "false")
+    secret_key = os.environ.get("FLASK_SECRET_KEY")
+    if app.config["APP_ENV"] == "production" and not secret_key:
+        raise RuntimeError("FLASK_SECRET_KEY must be set when APP_ENV=production")
+
+    app.secret_key = secret_key or os.urandom(32)
     app.config["UPLOAD_FOLDER"] = resolve_path("UPLOAD_FOLDER", Path("static") / "uploads")
     app.config["MAX_CONTENT_LENGTH"] = int(os.environ.get("MAX_CONTENT_LENGTH_MB", "16")) * 1024 * 1024
     app.config["OLLAMA_URL"] = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
@@ -20,10 +33,9 @@ def apply_config(app):
     app.config["DATABASE_PATH"] = resolve_path("DATABASE_PATH", Path("instance") / "neural_script_decoding.sqlite3")
     app.config["APP_HOST"] = os.environ.get("APP_HOST", "0.0.0.0")
     app.config["APP_PORT"] = int(os.environ.get("APP_PORT", "5000"))
-    app.config["APP_DEBUG"] = os.environ.get("APP_DEBUG", "false").lower() in {"1", "true", "yes", "on"}
     app.config["LOG_LEVEL"] = os.environ.get("LOG_LEVEL", "INFO").upper()
     app.config["MAX_SAVED_RUNS"] = int(os.environ.get("MAX_SAVED_RUNS", "100"))
-    app.config["ENABLE_TESSERACT"] = os.environ.get("ENABLE_TESSERACT", "true").lower() in {"1", "true", "yes", "on"}
-    app.config["ENABLE_EASYOCR"] = os.environ.get("ENABLE_EASYOCR", "false").lower() in {"1", "true", "yes", "on"}
-    app.config["ENABLE_TROCR"] = os.environ.get("ENABLE_TROCR", "false").lower() in {"1", "true", "yes", "on"}
+    app.config["ENABLE_TESSERACT"] = _env_flag("ENABLE_TESSERACT", "true")
+    app.config["ENABLE_EASYOCR"] = _env_flag("ENABLE_EASYOCR", "false")
+    app.config["ENABLE_TROCR"] = _env_flag("ENABLE_TROCR", "false")
     app.config["OLLAMA_STATUS_TIMEOUT"] = float(os.environ.get("OLLAMA_STATUS_TIMEOUT", "1.0"))

@@ -19,7 +19,7 @@ services:
         - CMD
         - python
         - /app/scripts/ollama_healthcheck.py
-        - http://ollama:11434/api/tags
+        - http://127.0.0.1:5000/health
       interval: 30s
       timeout: 5s
       retries: 5

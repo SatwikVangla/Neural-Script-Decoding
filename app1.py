@@ -1,7 +1,6 @@
-from neural_script_decoding import create_app
+from app import app
 
 
-app = create_app()
 ocr_engine = app.extensions["ocr_engine"]
 
 

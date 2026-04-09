@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Diagnostics | Neural Script Decoding</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="page-shell">
+    <section class="hero stagger">
+      <div class="hero-row">
+        <div class="hero-brand">
+          <p class="eyebrow">Runtime Diagnostics</p>
+          <h1>Environment and dependency status</h1>
+          <p>Use this page to verify writable paths, OCR initialization, and Ollama model availability.</p>
+        </div>
+        <div class="hero-chip">{{ diagnostics.app_env }}</div>
+      </div>
+    </section>
+
+    <section class="layout">
+      <article class="panel stagger">
+        <div class="panel-inner">
+          <p class="section-label">Filesystem</p>
+          <h2 class="section-title">Writable project paths</h2>
+          <div class="status-list">
+            <div class="status-row">
+              <div>
+                <strong>Upload folder</strong>
+                <p class="helper">{{ diagnostics.upload_folder.path }}</p>
+              </div>
+              <span class="status-pill {{ 'active' if diagnostics.upload_folder.exists and diagnostics.upload_folder.writable else 'inactive' }}">
+                {{ 'Writable' if diagnostics.upload_folder.exists and diagnostics.upload_folder.writable else 'Check path' }}
+              </span>
+            </div>
+            <div class="status-row">
+              <div>
+                <strong>Database</strong>
+                <p class="helper">{{ diagnostics.database.path }}</p>
+              </div>
+              <span class="status-pill {{ 'active' if diagnostics.database.parent_writable else 'inactive' }}">
+                {{ 'Writable' if diagnostics.database.parent_writable else 'Check path' }}
+              </span>
+            </div>
+            <div class="status-row">
+              <div>
+                <strong>PDF font</strong>
+                <p class="helper">{{ diagnostics.pdf_font.path }}</p>
+              </div>
+              <span class="status-pill {{ 'active' if diagnostics.pdf_font.exists else 'inactive' }}">
+                {{ 'Found' if diagnostics.pdf_font.exists else 'Fallback font' }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <aside class="panel stagger">
+        <div class="panel-inner">
+          <p class="section-label">Services</p>
+          <h2 class="section-title">Model and engine readiness</h2>
+          <div class="status-list">
+            <div class="status-row">
+              <div>
+                <strong>OCR engines</strong>
+                <p class="helper">Initialized: {{ diagnostics.engines_initialized }}</p>
+              </div>
+              <span class="status-pill {{ 'active' if diagnostics.engines_initialized else 'inactive' }}">
+                {{ 'Ready' if diagnostics.engines_initialized else 'Not initialized' }}
+              </span>
+            </div>
+            <div class="status-row">
+              <div>
+                <strong>Selected Ollama model</strong>
+                <p class="helper">{{ diagnostics.selected_ollama_model }}</p>
+              </div>
+              <span class="status-pill {{ 'active' if diagnostics.selected_ollama_model in diagnostics.available_ollama_models else 'inactive' }}">
+                {{ 'Installed' if diagnostics.selected_ollama_model in diagnostics.available_ollama_models else 'Missing locally' }}
+              </span>
+            </div>
+            <div class="status-row">
+              <div>
+                <strong>Available models</strong>
+                <p class="helper">{{ diagnostics.available_ollama_models|join(', ') if diagnostics.available_ollama_models else 'None reported' }}</p>
+              </div>
+              <span class="status-pill {{ 'active' if diagnostics.available_ollama_models else 'inactive' }}">
+                {{ 'Detected' if diagnostics.available_ollama_models else 'Empty' }}
+              </span>
+            </div>
+          </div>
+          <p class="footer-note"><a href="{{ url_for('index') }}">Back to upload</a></p>
+        </div>
+      </aside>
+    </section>
+  </main>
+</body>
+</html>

@@ -4,6 +4,8 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .services import normalize_result_payload
+
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS ocr_runs (
@@ -21,6 +23,13 @@ CREATE TABLE IF NOT EXISTS ocr_runs (
 );
 """
 
+INDEXES = (
+    "CREATE INDEX IF NOT EXISTS idx_ocr_runs_created_at ON ocr_runs(created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_ocr_runs_selected_engine ON ocr_runs(selected_engine)",
+    "CREATE INDEX IF NOT EXISTS idx_ocr_runs_file_name ON ocr_runs(file_name)",
+    "CREATE INDEX IF NOT EXISTS idx_ocr_runs_original_file_name ON ocr_runs(original_file_name)",
+)
+
 
 def init_db(database_path):
     db_path = Path(database_path)
@@ -28,6 +37,8 @@ def init_db(database_path):
         db_path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(database_path) as connection:
         connection.execute(SCHEMA)
+        for statement in INDEXES:
+            connection.execute(statement)
         columns = [row[1] for row in connection.execute("PRAGMA table_info(ocr_runs)").fetchall()]
         if "original_file_name" not in columns:
             connection.execute("ALTER TABLE ocr_runs ADD COLUMN original_file_name TEXT")
@@ -112,7 +123,7 @@ def get_run(database_path, run_id):
         if row is None:
             return None
         result = dict(row)
-        result["payload"] = json.loads(result["payload_json"])
+        result["payload"] = normalize_result_payload(json.loads(result["payload_json"]), created_at=result["created_at"])
         return result
 
 

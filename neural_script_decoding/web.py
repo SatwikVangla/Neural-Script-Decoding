@@ -1,11 +1,12 @@
 import logging
 import os
+import json
 from datetime import datetime
 
 from flask import abort, current_app, flash, jsonify, redirect, render_template, request, send_from_directory, url_for
 
-from .files import allowed_file, build_upload_paths, cleanup_files, persist_preview
-from .services import build_result_payload, correct_text_with_llm, generate_pdf, json_download_response, ollama_status
+from .files import allowed_file, build_upload_paths, cleanup_files
+from .services import diagnostics_snapshot, json_download_response, ollama_status, process_ocr_file
 from .storage import delete_run, get_run, list_runs, prune_old_runs, save_run
 
 
@@ -87,44 +88,28 @@ def register_routes(app):
 
             try:
                 logger.info("Processing image: %s", paths["filename"])
-                persist_preview(paths["file_path"], paths["preview_path"])
-                overlay_data = _ocr_engine().create_tesseract_overlay(paths["file_path"], paths["overlay_path"])
-                ocr_results = _ocr_engine().process_with_all_engines(paths["file_path"])
-                raw_text = _ocr_engine().combine_results(ocr_results)
-                correction = correct_text_with_llm(raw_text, current_app.config)
-                corrected_text = correction["text"]
-                generate_pdf(corrected_text, paths["pdf_path"], current_app.config["PDF_FONT_PATH"])
+                result = _run_ocr_pipeline(paths)
                 cleanup_files(paths["file_path"], paths["preprocessed_path"])
-                result_payload = build_result_payload(
-                    filename=paths["filename"],
-                    original_name=paths["original_name"],
-                    ocr_results=ocr_results,
-                    raw_text=raw_text,
-                    corrected_text=corrected_text,
-                    system_status=_system_status(),
-                    correction=correction,
-                    regions=overlay_data.get("regions", []),
-                )
                 run_id = save_run(
                     current_app.config["DATABASE_PATH"],
-                    result_payload,
+                    result["result_payload"],
                     paths["pdf_path"],
                     paths["preview_path"],
-                    overlay_data.get("overlay_path"),
+                    result["overlay_data"].get("overlay_path"),
                 )
                 _prune_saved_runs()
                 return render_template(
                     "results.html",
-                    ocr_results=ocr_results,
-                    raw_text=raw_text,
-                    corrected_text=corrected_text,
-                    correction=correction,
+                    ocr_results=result["ocr_results"],
+                    raw_text=result["raw_text"],
+                    corrected_text=result["corrected_text"],
+                    correction=result["correction"],
                     pdf_path=paths["pdf_path"],
                     preview_url=url_for("preview_image", filename=os.path.basename(paths["preview_path"])),
-                    overlay_url=url_for("overlay_image", filename=os.path.basename(paths["overlay_path"])) if overlay_data.get("overlay_path") else "",
-                    regions=overlay_data.get("regions", []),
+                    overlay_url=url_for("overlay_image", filename=os.path.basename(paths["overlay_path"])) if result["overlay_data"].get("overlay_path") else "",
+                    regions=result["overlay_data"].get("regions", []),
                     system_status=_system_status(),
-                    result_payload=result_payload,
+                    result_payload=result["result_payload"],
                     run_id=run_id,
                 )
             except Exception as exc:
@@ -162,29 +147,13 @@ def register_routes(app):
             paths = build_upload_paths(current_app.config["UPLOAD_FOLDER"], file.filename)
             file.save(paths["file_path"])
             logger.info("API OCR request for %s", paths["filename"])
-            persist_preview(paths["file_path"], paths["preview_path"])
-            overlay_data = _ocr_engine().create_tesseract_overlay(paths["file_path"], paths["overlay_path"])
-            ocr_results = _ocr_engine().process_with_all_engines(paths["file_path"])
-            combined_text = _ocr_engine().combine_results(ocr_results)
-            correction = correct_text_with_llm(combined_text, current_app.config)
-            corrected_text = correction["text"]
-            generate_pdf(corrected_text, paths["pdf_path"], current_app.config["PDF_FONT_PATH"])
-            payload = build_result_payload(
-                filename=paths["filename"],
-                original_name=paths["original_name"],
-                ocr_results=ocr_results,
-                raw_text=combined_text,
-                corrected_text=corrected_text,
-                system_status=_system_status(),
-                correction=correction,
-                regions=overlay_data.get("regions", []),
-            )
+            result = _run_ocr_pipeline(paths)
             run_id = save_run(
                 current_app.config["DATABASE_PATH"],
-                payload,
+                result["result_payload"],
                 paths["pdf_path"],
                 paths["preview_path"],
-                overlay_data.get("overlay_path"),
+                result["overlay_data"].get("overlay_path"),
             )
             _prune_saved_runs()
             return jsonify(
@@ -193,8 +162,8 @@ def register_routes(app):
                     "run_id": run_id,
                     "pdf_url": url_for("download_pdf", filename=os.path.basename(paths["pdf_path"])),
                     "preview_url": url_for("preview_image", filename=os.path.basename(paths["preview_path"])),
-                    "overlay_url": url_for("overlay_image", filename=os.path.basename(paths["overlay_path"])) if overlay_data.get("overlay_path") else "",
-                    **payload,
+                    "overlay_url": url_for("overlay_image", filename=os.path.basename(paths["overlay_path"])) if result["overlay_data"].get("overlay_path") else "",
+                    **result["result_payload"],
                 }
             )
         except Exception as exc:
@@ -216,9 +185,29 @@ def register_routes(app):
             }
         )
 
+    @app.route("/diagnostics")
+    def diagnostics():
+        system_status = _system_status()
+        return render_template(
+            "diagnostics.html",
+            diagnostics=diagnostics_snapshot(
+                config=current_app.config,
+                ocr_engine=_ocr_engine(),
+                system_status=system_status,
+            ),
+            system_status=system_status,
+        )
+
     @app.route("/download-json", methods=["POST"])
     def download_json():
         payload = request.get_json(silent=True)
+        if payload is None:
+            raw_payload = request.form.get("payload", "").strip()
+            if raw_payload:
+                try:
+                    payload = json.loads(raw_payload)
+                except json.JSONDecodeError:
+                    return jsonify({"error": "Invalid result payload"}), 400
         if not payload:
             return jsonify({"error": "No result payload provided"}), 400
 
@@ -258,6 +247,15 @@ def _system_status():
         "engines": _ocr_engine().available_summary(),
         "ollama": ollama_status(current_app.config),
     }
+
+
+def _run_ocr_pipeline(paths):
+    return process_ocr_file(
+        ocr_engine=_ocr_engine(),
+        config=current_app.config,
+        paths=paths,
+        system_status=_system_status(),
+    )
 
 
 def _prune_saved_runs():

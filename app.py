@@ -1,4 +1,7 @@
-from app1 import app
+from neural_script_decoding import create_app
+
+
+app = create_app()
 
 
 if __name__ == "__main__":

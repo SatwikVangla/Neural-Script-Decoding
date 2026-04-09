@@ -1,10 +1,15 @@
+import json
+import sqlite3
 from io import BytesIO
 from pathlib import Path
 
 import pytest
+from flask import Flask
 
 import app
 import app1
+from neural_script_decoding.config import apply_config
+from neural_script_decoding import services
 from neural_script_decoding import web
 from neural_script_decoding.storage import init_db
 
@@ -53,7 +58,7 @@ def client(tmp_path, monkeypatch):
         },
     )
     monkeypatch.setattr(
-        web,
+        services,
         "correct_text_with_llm",
         lambda text, _config: {
             "text": f"fixed {text}",
@@ -67,8 +72,8 @@ def client(tmp_path, monkeypatch):
     def fake_pdf(text, output_path, _font_path):
         Path(output_path).write_text(text, encoding="utf-8")
 
-    monkeypatch.setattr(web, "generate_pdf", fake_pdf)
-    monkeypatch.setattr(web, "persist_preview", lambda source, dest: Path(dest).write_bytes(Path(source).read_bytes()))
+    monkeypatch.setattr(services, "generate_pdf", fake_pdf)
+    monkeypatch.setattr(services, "persist_preview", lambda source, dest: Path(dest).write_bytes(Path(source).read_bytes()))
 
     with app1.app.test_client() as test_client:
         yield test_client
@@ -156,6 +161,17 @@ def test_download_json_returns_attachment(client):
     assert "attachment; filename=\"sample.json\"" in response.headers["Content-Disposition"]
 
 
+def test_download_json_accepts_form_payload_without_javascript(client):
+    response = client.post(
+        "/download-json",
+        data={"payload": json.dumps({"file": "sample.jpg", "raw_text": "a", "corrected_text": "b", "ocr_results": [], "system": {}})},
+    )
+
+    assert response.status_code == 200
+    assert response.mimetype == "application/json"
+    assert "attachment; filename=\"sample.json\"" in response.headers["Content-Disposition"]
+
+
 def test_history_pages_render_saved_runs(client):
     response = client.post(
         "/upload",
@@ -182,7 +198,7 @@ def test_history_pages_render_saved_runs(client):
 
 def test_upload_falls_back_to_raw_text_when_llm_is_unavailable(client, monkeypatch):
     monkeypatch.setattr(
-        web,
+        services,
         "correct_text_with_llm",
         lambda text, _config: {
             "text": text,
@@ -207,6 +223,15 @@ def test_upload_falls_back_to_raw_text_when_llm_is_unavailable(client, monkeypat
     assert detail.status_code == 200
     assert b"Ollama unavailable" in detail.data
     assert b"[Error: LLM offline" not in detail.data
+
+
+def test_diagnostics_page_renders_runtime_state(client):
+    response = client.get("/diagnostics")
+
+    assert response.status_code == 200
+    assert b"Environment and dependency status" in response.data
+    assert b"phi3:mini" in response.data
+    assert b"uploads" in response.data
 
 
 def test_history_filters_and_delete(client):
@@ -252,11 +277,70 @@ def test_history_prunes_old_runs(client):
     assert b"first.jpg" not in history.data
 
 
+def test_history_detail_normalizes_legacy_payload(client):
+    payload = {
+        "file": "legacy.jpg",
+        "original_file": "legacy.jpg",
+        "selected_engine": "tesseract",
+        "raw_text": "legacy raw",
+        "corrected_text": "legacy corrected",
+        "ocr_results": [],
+        "system": {},
+    }
+    with sqlite3.connect(app1.app.config["DATABASE_PATH"]) as connection:
+        connection.execute(
+            """
+            INSERT INTO ocr_runs (
+                file_name, original_file_name, selected_engine, raw_text, corrected_text,
+                pdf_file_name, preview_file_name, overlay_file_name, payload_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "legacy.jpg",
+                "legacy.jpg",
+                "tesseract",
+                "legacy raw",
+                "legacy corrected",
+                None,
+                None,
+                None,
+                json.dumps(payload),
+                "2026-01-01T00:00:00+00:00",
+            ),
+        )
+        connection.commit()
+
+    response = client.get("/history/1")
+
+    assert response.status_code == 200
+    assert b"legacy corrected" in response.data
+    assert b"Stored Run" in response.data
+
+
 def test_api_ocr_requires_file(client):
     response = client.post("/api/ocr", data={}, content_type="multipart/form-data")
 
     assert response.status_code == 400
     assert response.get_json()["error"] == "No file provided"
+
+
+def test_apply_config_requires_secret_key_in_production(monkeypatch):
+    flask_app = Flask(__name__)
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.delenv("FLASK_SECRET_KEY", raising=False)
+
+    with pytest.raises(RuntimeError, match="FLASK_SECRET_KEY must be set"):
+        apply_config(flask_app)
+
+
+def test_apply_config_accepts_secret_key_in_production(monkeypatch):
+    flask_app = Flask(__name__)
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("FLASK_SECRET_KEY", "test-secret")
+
+    apply_config(flask_app)
+
+    assert flask_app.secret_key == "test-secret"
 
 
 def test_health_reports_engine_status(client):
