@@ -3,6 +3,7 @@ from pathlib import Path
 
 from flask import Flask
 
+from .background_jobs import OCRJobManager
 from .config import apply_config
 from .ocr import MultiOCREngine
 from .storage import init_db
@@ -22,5 +23,6 @@ def create_app():
     Path(app.config["UPLOAD_FOLDER"]).mkdir(parents=True, exist_ok=True)
     init_db(app.config["DATABASE_PATH"])
     app.extensions["ocr_engine"] = MultiOCREngine(app.config)
+    app.extensions["ocr_job_manager"] = OCRJobManager(config=app.config, ocr_engine=app.extensions["ocr_engine"])
     register_routes(app)
     return app

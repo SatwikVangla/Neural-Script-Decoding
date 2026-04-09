@@ -35,6 +35,7 @@ def apply_config(app):
     app.config["APP_PORT"] = int(os.environ.get("APP_PORT", "5000"))
     app.config["LOG_LEVEL"] = os.environ.get("LOG_LEVEL", "INFO").upper()
     app.config["MAX_SAVED_RUNS"] = int(os.environ.get("MAX_SAVED_RUNS", "100"))
+    app.config["BACKGROUND_OCR_WORKERS"] = int(os.environ.get("BACKGROUND_OCR_WORKERS", "2"))
     app.config["ENABLE_TESSERACT"] = _env_flag("ENABLE_TESSERACT", "true")
     app.config["ENABLE_EASYOCR"] = _env_flag("ENABLE_EASYOCR", "false")
     app.config["ENABLE_TROCR"] = _env_flag("ENABLE_TROCR", "false")

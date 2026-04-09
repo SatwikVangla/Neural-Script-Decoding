@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import time
 from io import BytesIO
 from pathlib import Path
 
@@ -8,6 +9,7 @@ from flask import Flask
 
 import app
 import app1
+from neural_script_decoding.background_jobs import OCRJobManager
 from neural_script_decoding.config import apply_config
 from neural_script_decoding import services
 from neural_script_decoding import web
@@ -25,9 +27,11 @@ def client(tmp_path, monkeypatch):
         UPLOAD_FOLDER=str(upload_dir),
         DATABASE_PATH=str(database_path),
         MAX_SAVED_RUNS=100,
+        BACKGROUND_OCR_WORKERS=1,
         WTF_CSRF_ENABLED=False,
     )
     init_db(app1.app.config["DATABASE_PATH"])
+    app1.app.extensions["ocr_job_manager"] = OCRJobManager(config=app1.app.config, ocr_engine=app1.ocr_engine)
 
     monkeypatch.setattr(
         app1.ocr_engine,
@@ -150,6 +154,45 @@ def test_api_ocr_saved_run_has_downloadable_pdf(client):
     assert download.mimetype == "application/pdf"
 
 
+def test_api_ocr_async_completes_in_background(client):
+    queued = client.post(
+        "/api/ocr/jobs",
+        data={"file": (BytesIO(b"fake-image-bytes"), "note.jpg")},
+        content_type="multipart/form-data",
+    )
+
+    assert queued.status_code == 202
+    payload = queued.get_json()
+    assert payload["success"] is True
+    assert payload["status"] in {"queued", "running"}
+    assert payload["job_id"]
+
+    completed = None
+    for _ in range(40):
+        status = client.get(payload["status_url"])
+        assert status.status_code == 200
+        completed = status.get_json()
+        if completed["status"] == "completed":
+            break
+        time.sleep(0.05)
+
+    assert completed is not None
+    assert completed["status"] == "completed"
+    assert completed["corrected_text"] == "fixed rich raw text output"
+    assert completed["run_id"] == 1
+    assert "/download/" in completed["pdf_url"]
+
+    download = client.get(completed["pdf_url"])
+    assert download.status_code == 200
+
+
+def test_api_ocr_async_missing_job_returns_404(client):
+    response = client.get("/api/ocr/jobs/missing-job")
+
+    assert response.status_code == 404
+    assert response.get_json()["error"] == "Job not found"
+
+
 def test_download_json_returns_attachment(client):
     response = client.post(
         "/download-json",
@@ -232,6 +275,15 @@ def test_diagnostics_page_renders_runtime_state(client):
     assert b"Environment and dependency status" in response.data
     assert b"phi3:mini" in response.data
     assert b"uploads" in response.data
+
+
+def test_health_reports_background_job_summary(client):
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["background_jobs"]["total"] == 0
+    assert payload["background_jobs"]["queued"] == 0
 
 
 def test_history_filters_and_delete(client):

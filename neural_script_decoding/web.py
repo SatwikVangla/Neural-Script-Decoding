@@ -173,6 +173,59 @@ def register_routes(app):
             if paths:
                 cleanup_files(paths["file_path"], paths["preprocessed_path"])
 
+    @app.route("/api/ocr/jobs", methods=["POST"])
+    def api_ocr_async():
+        if "file" not in request.files:
+            return jsonify({"error": "No file provided"}), 400
+
+        file = request.files["file"]
+        if not allowed_file(file.filename):
+            return jsonify({"error": "Invalid file type"}), 400
+
+        paths = build_upload_paths(current_app.config["UPLOAD_FOLDER"], file.filename)
+        file.save(paths["file_path"])
+        logger.info("Queued async OCR request for %s", paths["filename"])
+        job = _job_manager().submit(paths=paths, system_status=_system_status())
+        return (
+            jsonify(
+                {
+                    "success": True,
+                    "job_id": job["id"],
+                    "status": job["status"],
+                    "status_url": url_for("api_ocr_job_status", job_id=job["id"]),
+                    "created_at": job["created_at"],
+                }
+            ),
+            202,
+        )
+
+    @app.route("/api/ocr/jobs/<job_id>", methods=["GET"])
+    def api_ocr_job_status(job_id):
+        job = _job_manager().snapshot(job_id)
+        if job is None:
+            return jsonify({"error": "Job not found"}), 404
+
+        response = {
+            "job_id": job["id"],
+            "status": job["status"],
+            "created_at": job["created_at"],
+            "started_at": job["started_at"],
+            "completed_at": job["completed_at"],
+            "error": job["error"],
+        }
+        if job["result"]:
+            result = job["result"]
+            response.update(
+                {
+                    "run_id": result["run_id"],
+                    "pdf_url": url_for("download_pdf", filename=result["pdf_file_name"]),
+                    "preview_url": url_for("preview_image", filename=result["preview_file_name"]),
+                    "overlay_url": url_for("overlay_image", filename=result["overlay_file_name"]) if result["overlay_file_name"] else "",
+                    **result["payload"],
+                }
+            )
+        return jsonify(response)
+
     @app.route("/health")
     def health_check():
         logger.info("Health check requested")
@@ -181,6 +234,7 @@ def register_routes(app):
                 "status": "healthy",
                 "initialized": _ocr_engine().initialized,
                 "system": _system_status(),
+                "background_jobs": _job_manager().summary(),
                 "timestamp": datetime.now().isoformat(),
             }
         )
@@ -239,6 +293,10 @@ def register_routes(app):
 
 def _ocr_engine():
     return current_app.extensions["ocr_engine"]
+
+
+def _job_manager():
+    return current_app.extensions["ocr_job_manager"]
 
 
 def _system_status():

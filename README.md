@@ -4,13 +4,14 @@ Neural Script Decoding is a Flask application for extracting text from handwritt
 
 ## Project Status
 
-`app.py` is the canonical entrypoint and delegates to `app1.py`, which contains the main application logic.
+`app.py` is the canonical entrypoint. `app1.py` remains as a compatibility shim that exposes the same Flask app object.
 
 ## Features
 
 - Multi-engine OCR orchestration across Tesseract, EasyOCR, and TrOCR
 - Graceful fallback when optional OCR dependencies are not installed
 - Local Ollama correction pass before PDF generation
+- Optional background OCR job API for long-running requests
 - Safer download handling and cleanup of temporary upload artifacts
 - Responsive frontend for upload, review, and export flows
 - Automated tests for upload, API, health, and download behavior
@@ -153,6 +154,7 @@ The app reads configuration from environment variables.
 | `APP_PORT` | `5000` | Port for the built-in Flask server |
 | `APP_DEBUG` | `false` | Enable Flask debug mode |
 | `LOG_LEVEL` | `INFO` | Application log level |
+| `BACKGROUND_OCR_WORKERS` | `2` | Number of in-process OCR background workers |
 | `ENABLE_TESSERACT` | `true` | Enable the Tesseract engine |
 | `ENABLE_EASYOCR` | `false` | Enable the EasyOCR engine |
 | `ENABLE_TROCR` | `false` | Enable the TrOCR engine |
@@ -240,6 +242,28 @@ Optional engines:
 - Install `requirements-ocr.txt` and set `ENABLE_EASYOCR=true` to enable EasyOCR.
 - Install `requirements-ocr.txt` and set `ENABLE_TROCR=true` to enable TrOCR.
 - Leave both disabled if you only want the lighter Tesseract-based setup.
+
+## Async OCR API
+
+For heavier OCR or LLM correction requests, use the background job API instead of blocking on `/api/ocr`.
+
+Create a job:
+
+```bash
+curl -F "file=@note.jpg" http://127.0.0.1:5000/api/ocr/jobs
+```
+
+The response returns `202 Accepted` with a `job_id` and `status_url`.
+
+Poll job status:
+
+```bash
+curl http://127.0.0.1:5000/api/ocr/jobs/<job_id>
+```
+
+When the job completes, the status response includes the same OCR payload as `/api/ocr` plus `run_id`, `pdf_url`, `preview_url`, and `overlay_url`.
+
+This background queue is intentionally in-process and lightweight. It reduces request latency for local development and small deployments, but it is not a durable distributed worker system.
 
 ## Docker Compose
 
