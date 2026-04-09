@@ -193,6 +193,111 @@ def test_api_ocr_async_missing_job_returns_404(client):
     assert response.get_json()["error"] == "Job not found"
 
 
+def test_jobs_pages_render_persisted_async_job(client):
+    queued = client.post(
+        "/api/ocr/jobs",
+        data={"file": (BytesIO(b"fake-image-bytes"), "note.jpg")},
+        content_type="multipart/form-data",
+    ).get_json()
+
+    completed = None
+    for _ in range(40):
+        completed = client.get(queued["status_url"]).get_json()
+        if completed["status"] == "completed":
+            break
+        time.sleep(0.05)
+
+    assert completed is not None
+    assert completed["status"] == "completed"
+
+    jobs_page = client.get("/jobs")
+    assert jobs_page.status_code == 200
+    assert b"OCR jobs" in jobs_page.data
+    assert b"note.jpg" in jobs_page.data
+    assert b"Saved Run" in jobs_page.data
+
+    detail_page = client.get(f"/jobs/{queued['job_id']}")
+    assert detail_page.status_code == 200
+    assert b"Async Job" in detail_page.data
+    assert b"fixed rich raw text output" in detail_page.data
+
+
+def test_api_job_cancel_and_retry_endpoints(client):
+    class FakeJobManager:
+        def __init__(self):
+            self.records = {
+                "queued-job": {
+                    "id": "queued-job",
+                    "status": "queued",
+                    "attempt_count": 1,
+                    "created_at": "2026-01-01T00:00:00+00:00",
+                    "started_at": None,
+                    "completed_at": None,
+                    "canceled_at": None,
+                    "error_message": None,
+                    "backend": "local",
+                    "run_id": None,
+                    "pdf_file_name": None,
+                    "preview_file_name": None,
+                    "overlay_file_name": None,
+                    "result_payload": None,
+                    "paths": {"file_path": str(Path(app1.app.config["UPLOAD_FOLDER"]) / "queued.jpg")},
+                    "system_status": {},
+                },
+                "failed-job": {
+                    "id": "failed-job",
+                    "status": "failed",
+                    "attempt_count": 1,
+                    "created_at": "2026-01-01T00:00:00+00:00",
+                    "started_at": None,
+                    "completed_at": "2026-01-01T00:01:00+00:00",
+                    "canceled_at": None,
+                    "error_message": "boom",
+                    "backend": "local",
+                    "run_id": None,
+                    "pdf_file_name": None,
+                    "preview_file_name": None,
+                    "overlay_file_name": None,
+                    "result_payload": None,
+                    "paths": {"file_path": str(Path(app1.app.config["UPLOAD_FOLDER"]) / "failed.jpg")},
+                    "system_status": {},
+                },
+            }
+
+        def snapshot(self, job_id):
+            return self.records.get(job_id)
+
+        def list(self, limit=50):
+            return list(self.records.values())[:limit]
+
+        def summary(self):
+            return {"backend": "local", "queued": 1, "running": 0, "completed": 0, "failed": 1, "canceled": 0, "total": 2}
+
+        def cancel(self, job_id):
+            record = self.records.get(job_id)
+            if record and record["status"] == "queued":
+                record["status"] = "canceled"
+            return record
+
+        def retry(self, job_id):
+            record = self.records.get(job_id)
+            if record and record["status"] in {"failed", "canceled"}:
+                record["status"] = "queued"
+                record["attempt_count"] += 1
+            return record
+
+    app1.app.extensions["ocr_job_manager"] = FakeJobManager()
+
+    canceled = client.post("/api/ocr/jobs/queued-job/cancel")
+    assert canceled.status_code == 200
+    assert canceled.get_json()["status"] == "canceled"
+
+    retried = client.post("/api/ocr/jobs/failed-job/retry")
+    assert retried.status_code == 200
+    assert retried.get_json()["status"] == "queued"
+    assert retried.get_json()["attempt_count"] == 2
+
+
 def test_download_json_returns_attachment(client):
     response = client.post(
         "/download-json",

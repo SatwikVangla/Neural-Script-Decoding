@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OCR Jobs</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="page-shell">
+    <section class="hero stagger">
+      <div class="hero-row">
+        <div class="hero-brand">
+          <p class="eyebrow">Async Queue</p>
+          <h1>OCR jobs</h1>
+          <p>Track queued work, inspect failures, and retry or cancel jobs without leaving the app.</p>
+        </div>
+        <a class="hero-chip" href="{{ url_for('index') }}">New Upload</a>
+      </div>
+    </section>
+
+    <section class="panel stagger" style="margin-top: 24px;">
+      <div class="panel-inner">
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            <div class="flash-stack">
+              {% for message in messages %}
+                <div class="flash">{{ message }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
+        <p class="section-label">Queue Summary</p>
+        <h2 class="section-title">Current job state</h2>
+        <div class="stats-grid">
+          <div class="stat-card stagger">
+            <div class="stat-value">{{ summary.total }}</div>
+            <div class="stat-label">Total jobs</div>
+          </div>
+          <div class="stat-card stagger">
+            <div class="stat-value">{{ summary.queued + summary.running }}</div>
+            <div class="stat-label">Active jobs</div>
+          </div>
+          <div class="stat-card stagger">
+            <div class="stat-value">{{ summary.failed + summary.canceled }}</div>
+            <div class="stat-label">Needs attention</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel stagger" style="margin-top: 24px;">
+      <div class="panel-inner">
+        <p class="section-label">Job History</p>
+        <h2 class="section-title">Persisted async requests</h2>
+        {% if jobs %}
+          <div class="history-list">
+            {% for job in jobs %}
+              <div class="history-item stagger">
+                <div>
+                  <a class="history-link" href="{{ url_for('job_detail', job_id=job.id) }}">
+                    <strong>{{ job.original_file_name or job.file_name }}</strong>
+                  </a>
+                  <p class="helper">Status: {{ job.status }} | Attempts: {{ job.attempt_count }} | Backend: {{ job.backend }}</p>
+                </div>
+                <div class="history-meta">
+                  <span>{{ job.created_at }}</span>
+                  <span>{{ job.error_message or (job.result_payload.corrected_text[:120] if job.result_payload else 'No result yet') }}</span>
+                  <div class="history-actions">
+                    <a class="ghost-button" href="{{ url_for('job_detail', job_id=job.id) }}">Open</a>
+                    {% if job.status == 'queued' %}
+                      <form method="post" action="{{ url_for('cancel_job', job_id=job.id) }}" class="inline-form">
+                        <button class="ghost-button danger-button" type="submit">Cancel</button>
+                      </form>
+                    {% endif %}
+                    {% if job.status in ['failed', 'canceled'] %}
+                      <form method="post" action="{{ url_for('retry_job', job_id=job.id) }}" class="inline-form">
+                        <button class="ghost-button" type="submit">Retry</button>
+                      </form>
+                    {% endif %}
+                    {% if job.run_id %}
+                      <a class="ghost-button" href="{{ url_for('history_detail', run_id=job.run_id) }}">Saved Run</a>
+                    {% endif %}
+                  </div>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="section-copy">No async OCR jobs have been recorded yet.</p>
+        {% endif %}
+      </div>
+    </section>
+  </main>
+</body>
+</html>

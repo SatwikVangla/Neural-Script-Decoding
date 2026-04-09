@@ -12,6 +12,7 @@ Neural Script Decoding is a Flask application for extracting text from handwritt
 - Graceful fallback when optional OCR dependencies are not installed
 - Local Ollama correction pass before PDF generation
 - Optional background OCR job API for long-running requests
+- Persisted async job history with retry and cancellation controls
 - Safer download handling and cleanup of temporary upload artifacts
 - Responsive frontend for upload, review, and export flows
 - Automated tests for upload, API, health, and download behavior
@@ -270,6 +271,15 @@ When the job completes, the status response includes the same OCR payload as `/a
 With `OCR_QUEUE_BACKEND=local`, this stays as an in-process queue for simple local development.
 
 For a durable external queue, set `OCR_QUEUE_BACKEND=redis` and run a separate worker process. The included Docker Compose stack does that for you by starting Redis plus a dedicated OCR worker container.
+
+The app also persists async job records in SQLite, exposes a `/jobs` dashboard in the UI, and supports:
+
+```bash
+curl -X POST http://127.0.0.1:5000/api/ocr/jobs/<job_id>/cancel
+curl -X POST http://127.0.0.1:5000/api/ocr/jobs/<job_id>/retry
+```
+
+Cancellation is only supported while a job is still queued. Retry is supported for failed or canceled jobs as long as the original uploaded file is still available on disk.
 
 ## Docker Compose
 

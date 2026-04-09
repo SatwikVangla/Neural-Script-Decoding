@@ -23,11 +23,40 @@ CREATE TABLE IF NOT EXISTS ocr_runs (
 );
 """
 
+JOB_SCHEMA = """
+CREATE TABLE IF NOT EXISTS ocr_jobs (
+    id TEXT PRIMARY KEY,
+    file_name TEXT NOT NULL,
+    original_file_name TEXT,
+    backend TEXT NOT NULL,
+    status TEXT NOT NULL,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    queue_job_id TEXT,
+    error_message TEXT,
+    result_payload_json TEXT,
+    run_id INTEGER,
+    pdf_file_name TEXT,
+    preview_file_name TEXT,
+    overlay_file_name TEXT,
+    paths_json TEXT NOT NULL,
+    system_status_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    completed_at TEXT,
+    canceled_at TEXT
+);
+"""
+
 INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_ocr_runs_created_at ON ocr_runs(created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_ocr_runs_selected_engine ON ocr_runs(selected_engine)",
     "CREATE INDEX IF NOT EXISTS idx_ocr_runs_file_name ON ocr_runs(file_name)",
     "CREATE INDEX IF NOT EXISTS idx_ocr_runs_original_file_name ON ocr_runs(original_file_name)",
+)
+
+JOB_INDEXES = (
+    "CREATE INDEX IF NOT EXISTS idx_ocr_jobs_created_at ON ocr_jobs(created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_ocr_jobs_status ON ocr_jobs(status)",
 )
 
 
@@ -37,7 +66,10 @@ def init_db(database_path):
         db_path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(database_path) as connection:
         connection.execute(SCHEMA)
+        connection.execute(JOB_SCHEMA)
         for statement in INDEXES:
+            connection.execute(statement)
+        for statement in JOB_INDEXES:
             connection.execute(statement)
         columns = [row[1] for row in connection.execute("PRAGMA table_info(ocr_runs)").fetchall()]
         if "original_file_name" not in columns:
@@ -166,3 +198,98 @@ def prune_old_runs(database_path, keep_limit):
         connection.executemany("DELETE FROM ocr_runs WHERE id = ?", [(run_id,) for run_id in ids])
         connection.commit()
         return [dict(row) for row in rows]
+
+
+def create_job(database_path, *, job_id, paths, system_status, backend, queue_job_id=None):
+    created_at = datetime.now(timezone.utc).isoformat()
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO ocr_jobs (
+                id, file_name, original_file_name, backend, status, attempt_count, queue_job_id,
+                paths_json, system_status_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                job_id,
+                paths.get("filename"),
+                paths.get("original_name"),
+                backend,
+                "queued",
+                1,
+                queue_job_id,
+                json.dumps(paths, ensure_ascii=False),
+                json.dumps(system_status, ensure_ascii=False),
+                created_at,
+            ),
+        )
+        connection.commit()
+    return get_job(database_path, job_id)
+
+
+def get_job(database_path, job_id):
+    with sqlite3.connect(database_path) as connection:
+        connection.row_factory = sqlite3.Row
+        row = connection.execute("SELECT * FROM ocr_jobs WHERE id = ?", (job_id,)).fetchone()
+        if row is None:
+            return None
+        return _deserialize_job(dict(row))
+
+
+def list_jobs(database_path, limit=50):
+    with sqlite3.connect(database_path) as connection:
+        connection.row_factory = sqlite3.Row
+        rows = connection.execute(
+            "SELECT * FROM ocr_jobs ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [_deserialize_job(dict(row)) for row in rows]
+
+
+def update_job(database_path, job_id, **fields):
+    if not fields:
+        return get_job(database_path, job_id)
+
+    prepared = {}
+    for key, value in fields.items():
+        if key in {"paths", "system_status", "result_payload"} and value is not None:
+            mapping = {
+                "paths": "paths_json",
+                "system_status": "system_status_json",
+                "result_payload": "result_payload_json",
+            }
+            prepared[mapping[key]] = json.dumps(value, ensure_ascii=False)
+        else:
+            prepared[key] = value
+
+    assignments = ", ".join(f"{field} = ?" for field in prepared)
+    params = list(prepared.values()) + [job_id]
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(f"UPDATE ocr_jobs SET {assignments} WHERE id = ?", params)
+        connection.commit()
+    return get_job(database_path, job_id)
+
+
+def summarize_jobs(database_path):
+    with sqlite3.connect(database_path) as connection:
+        rows = connection.execute(
+            "SELECT status, COUNT(*) FROM ocr_jobs GROUP BY status"
+        ).fetchall()
+    counts = {"queued": 0, "running": 0, "completed": 0, "failed": 0, "canceled": 0}
+    for status, count in rows:
+        counts[status] = count
+    counts["total"] = sum(counts.values())
+    return counts
+
+
+def _deserialize_job(row):
+    row["paths"] = json.loads(row["paths_json"])
+    row["system_status"] = json.loads(row["system_status_json"])
+    if row.get("result_payload_json"):
+        row["result_payload"] = normalize_result_payload(
+            json.loads(row["result_payload_json"]),
+            created_at=row["completed_at"] or row["created_at"],
+        )
+    else:
+        row["result_payload"] = None
+    return row

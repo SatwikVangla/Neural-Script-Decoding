@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Job Detail</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="page-shell">
+    <section class="hero stagger">
+      <div class="hero-row">
+        <div class="hero-brand">
+          <p class="eyebrow">Async Job</p>
+          <h1>{{ job.original_file_name or job.file_name }}</h1>
+          <p>Job {{ job.id }} is {{ job.status }} after {{ job.attempt_count }} attempt{% if job.attempt_count != 1 %}s{% endif %}.</p>
+        </div>
+        <a class="hero-chip" href="{{ url_for('jobs') }}">Back To Jobs</a>
+      </div>
+    </section>
+
+    <section class="panel stagger" style="margin-top: 24px;">
+      <div class="panel-inner">
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            <div class="flash-stack">
+              {% for message in messages %}
+                <div class="flash">{{ message }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
+        <div class="actions-row">
+          {% if job.status == 'queued' %}
+            <form method="post" action="{{ url_for('cancel_job', job_id=job.id) }}" class="inline-form">
+              <button class="ghost-button danger-button" type="submit">Cancel Job</button>
+            </form>
+          {% endif %}
+          {% if job.status in ['failed', 'canceled'] %}
+            <form method="post" action="{{ url_for('retry_job', job_id=job.id) }}" class="inline-form">
+              <button class="ghost-button" type="submit">Retry Job</button>
+            </form>
+          {% endif %}
+          {% if job.run_id %}
+            <a class="button" href="{{ url_for('history_detail', run_id=job.run_id) }}">Open Saved Run</a>
+          {% endif %}
+        </div>
+
+        <div class="meta-grid" style="margin-top: 24px;">
+          <div class="meta-card stagger"><strong>Status</strong><span>{{ job.status }}</span></div>
+          <div class="meta-card stagger"><strong>Backend</strong><span>{{ job.backend }}</span></div>
+          <div class="meta-card stagger"><strong>Created</strong><span>{{ job.created_at }}</span></div>
+          <div class="meta-card stagger"><strong>Completed</strong><span>{{ job.completed_at or 'In progress' }}</span></div>
+        </div>
+
+        {% if job.error_message %}
+          <p class="helper" style="margin-top: 16px;">{{ job.error_message }}</p>
+        {% endif %}
+      </div>
+    </section>
+
+    {% if job.result_payload %}
+      {% set correction = job.result_payload.get('correction', {}) %}
+      {% set ocr_results = job.result_payload.get('ocr_results', []) %}
+      {% set raw_text = job.result_payload.get('raw_text', '') %}
+      {% set corrected_text = job.result_payload.get('corrected_text', '') %}
+      {% set regions = job.result_payload.get('regions', []) %}
+      {% set preview_url = url_for('preview_image', filename=job.preview_file_name) if job.preview_file_name else '' %}
+      {% set overlay_url = url_for('overlay_image', filename=job.overlay_file_name) if job.overlay_file_name else '' %}
+      {% set pdf_path = job.pdf_file_name %}
+      {% set result_payload = job.result_payload %}
+      {% set run_id = job.run_id %}
+      {% include "_results_content.html" %}
+    {% endif %}
+  </main>
+</body>
+</html>

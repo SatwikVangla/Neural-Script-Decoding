@@ -35,6 +35,26 @@ def register_routes(app):
             selected_engine=engine or "",
         )
 
+    @app.route("/jobs")
+    def jobs():
+        return render_template(
+            "jobs.html",
+            jobs=_job_manager().list(limit=100),
+            summary=_job_manager().summary(),
+            system_status=_system_status(),
+        )
+
+    @app.route("/jobs/<job_id>")
+    def job_detail(job_id):
+        job = _job_manager().snapshot(job_id)
+        if job is None:
+            abort(404)
+        return render_template(
+            "job_detail.html",
+            job=job,
+            system_status=_system_status(),
+        )
+
     @app.route("/history/<int:run_id>")
     def history_detail(run_id):
         run = get_run(current_app.config["DATABASE_PATH"], run_id)
@@ -216,20 +236,69 @@ def register_routes(app):
             "created_at": job["created_at"],
             "started_at": job["started_at"],
             "completed_at": job["completed_at"],
-            "error": job["error"],
+            "error": job["error_message"],
+            "attempt_count": job["attempt_count"],
+            "run_id": job["run_id"],
         }
-        if job["result"]:
-            result = job["result"]
+        if job["result_payload"]:
             response.update(
                 {
-                    "run_id": result["run_id"],
-                    "pdf_url": url_for("download_pdf", filename=result["pdf_file_name"]),
-                    "preview_url": url_for("preview_image", filename=result["preview_file_name"]),
-                    "overlay_url": url_for("overlay_image", filename=result["overlay_file_name"]) if result["overlay_file_name"] else "",
-                    **result["payload"],
+                    "pdf_url": url_for("download_pdf", filename=job["pdf_file_name"]),
+                    "preview_url": url_for("preview_image", filename=job["preview_file_name"]),
+                    "overlay_url": url_for("overlay_image", filename=job["overlay_file_name"]) if job["overlay_file_name"] else "",
+                    **job["result_payload"],
                 }
             )
         return jsonify(response)
+
+    @app.route("/api/ocr/jobs/<job_id>/cancel", methods=["POST"])
+    def api_ocr_job_cancel(job_id):
+        job = _job_manager().cancel(job_id)
+        if job is None:
+            return jsonify({"error": "Job not found"}), 404
+        if job["status"] != "canceled":
+            return jsonify({"error": f"Job cannot be canceled from status {job['status']}", "status": job["status"]}), 409
+        return jsonify({"success": True, "job_id": job_id, "status": job["status"]})
+
+    @app.route("/api/ocr/jobs/<job_id>/retry", methods=["POST"])
+    def api_ocr_job_retry(job_id):
+        before = _job_manager().snapshot(job_id)
+        if before is None:
+            return jsonify({"error": "Job not found"}), 404
+        job = _job_manager().retry(job_id)
+        if job["status"] not in {"queued", "running"}:
+            return jsonify({"error": f"Job cannot be retried from status {before['status']}", "status": job["status"]}), 409
+        return jsonify(
+            {
+                "success": True,
+                "job_id": job_id,
+                "status": job["status"],
+                "attempt_count": job["attempt_count"],
+                "status_url": url_for("api_ocr_job_status", job_id=job_id),
+            }
+        )
+
+    @app.route("/jobs/<job_id>/cancel", methods=["POST"])
+    def cancel_job(job_id):
+        job = _job_manager().cancel(job_id)
+        if job is None:
+            abort(404)
+        if job["status"] == "canceled":
+            flash("Job canceled")
+        else:
+            flash(f"Job could not be canceled from status {job['status']}")
+        return redirect(request.referrer or url_for("job_detail", job_id=job_id))
+
+    @app.route("/jobs/<job_id>/retry", methods=["POST"])
+    def retry_job(job_id):
+        job = _job_manager().retry(job_id)
+        if job is None:
+            abort(404)
+        if job["status"] in {"queued", "running"}:
+            flash("Job re-queued")
+        else:
+            flash(f"Job could not be retried from status {job['status']}")
+        return redirect(request.referrer or url_for("job_detail", job_id=job_id))
 
     @app.route("/health")
     def health_check():
