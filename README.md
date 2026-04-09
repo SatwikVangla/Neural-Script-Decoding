@@ -70,6 +70,20 @@ pip install -r requirements-ocr.txt
 pip install -r requirements-dev.txt
 ```
 
+Initialize local configuration:
+
+macOS / Linux:
+
+```bash
+cp .env.example .env
+```
+
+Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
 ### Tesseract Setup
 
 Ubuntu/Debian:
@@ -111,6 +125,13 @@ ollama serve
 ollama pull mistral
 ```
 
+To make this more repeatable, the repo now includes:
+
+- `.env.example` for pinned local configuration
+- `docker-compose.yml` for running the app and Ollama together
+- `scripts/ollama_healthcheck.py` for simple readiness checks
+- `scripts/setup_ollama.sh` for waiting on Ollama and pulling the configured model
+
 ## Configuration
 
 The app reads configuration from environment variables.
@@ -148,6 +169,13 @@ $env:FLASK_SECRET_KEY="replace-me"
 $env:OLLAMA_MODEL="mistral"
 $env:ENABLE_EASYOCR="true"
 ```
+
+Recommended local setup:
+
+1. Copy `.env.example` to `.env`.
+2. Set `FLASK_SECRET_KEY` to a real secret.
+3. Keep `OLLAMA_MODEL` pinned to the model you actually use.
+4. For Docker Compose, keep `OLLAMA_URL` as-is in `.env`; Compose overrides it for the app container automatically.
 
 ## Running the Project
 
@@ -204,6 +232,39 @@ Optional engines:
 - Install `requirements-ocr.txt` and set `ENABLE_EASYOCR=true` to enable EasyOCR.
 - Install `requirements-ocr.txt` and set `ENABLE_TROCR=true` to enable TrOCR.
 - Leave both disabled if you only want the lighter Tesseract-based setup.
+
+## Docker Compose
+
+Run the web app and Ollama together:
+
+```bash
+cp .env.example .env
+docker compose up --build -d
+```
+
+After Ollama starts, pull the configured model:
+
+```bash
+./scripts/setup_ollama.sh
+```
+
+Open:
+
+```text
+http://127.0.0.1:5000
+```
+
+Notes:
+
+- The app container uses `http://ollama:11434/api/generate` internally.
+- Ollama data is stored in the named volume `ollama_data`.
+- Uploaded files and the SQLite database are stored in named Docker volumes as well.
+
+To check Ollama readiness manually:
+
+```bash
+python3 scripts/ollama_healthcheck.py http://localhost:11434/api/tags
+```
 
 ## Running Tests
 

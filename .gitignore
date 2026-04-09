@@ -3,6 +3,7 @@ __pycache__/
 .venv/
 .pytest_cache/
 instance/
+.env
 
 static/uploads/*
 !static/uploads/.gitkeep
