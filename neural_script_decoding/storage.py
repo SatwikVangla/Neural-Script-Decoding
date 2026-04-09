@@ -1,7 +1,7 @@
 import json
 import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .services import normalize_result_payload
@@ -280,6 +280,45 @@ def summarize_jobs(database_path):
         counts[status] = count
     counts["total"] = sum(counts.values())
     return counts
+
+
+def prune_jobs(database_path, *, keep_limit, retention_days):
+    cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+    with sqlite3.connect(database_path) as connection:
+        connection.row_factory = sqlite3.Row
+        stale_rows = connection.execute(
+            """
+            SELECT *
+            FROM ocr_jobs
+            WHERE status IN ('completed', 'failed', 'canceled')
+              AND datetime(created_at) < datetime(?)
+            """,
+            (cutoff.isoformat(),),
+        ).fetchall()
+
+        overflow_rows = connection.execute(
+            """
+            SELECT *
+            FROM ocr_jobs
+            WHERE status IN ('completed', 'failed', 'canceled')
+              AND id NOT IN (
+                SELECT id
+                FROM ocr_jobs
+                ORDER BY created_at DESC
+                LIMIT ?
+              )
+            """,
+            (keep_limit,),
+        ).fetchall()
+
+        rows_by_id = {row["id"]: dict(row) for row in stale_rows}
+        rows_by_id.update({row["id"]: dict(row) for row in overflow_rows})
+        if not rows_by_id:
+            return []
+
+        connection.executemany("DELETE FROM ocr_jobs WHERE id = ?", [(job_id,) for job_id in rows_by_id])
+        connection.commit()
+        return [_deserialize_job(row) for row in rows_by_id.values()]
 
 
 def _deserialize_job(row):

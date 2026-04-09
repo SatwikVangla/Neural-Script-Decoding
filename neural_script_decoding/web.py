@@ -1,7 +1,9 @@
 import logging
 import os
 import json
+import time
 from datetime import datetime
+from functools import wraps
 
 from flask import abort, current_app, flash, jsonify, redirect, render_template, request, send_from_directory, url_for
 
@@ -11,6 +13,7 @@ from .storage import delete_run, get_run, list_runs, prune_old_runs, save_run
 
 
 logger = logging.getLogger(__name__)
+_RATE_LIMIT_STATE = {}
 
 
 def register_routes(app):
@@ -154,6 +157,7 @@ def register_routes(app):
         return redirect(url_for("index"))
 
     @app.route("/api/ocr", methods=["POST"])
+    @require_api_access
     def api_ocr():
         if "file" not in request.files:
             return jsonify({"error": "No file provided"}), 400
@@ -194,6 +198,7 @@ def register_routes(app):
                 cleanup_files(paths["file_path"], paths["preprocessed_path"])
 
     @app.route("/api/ocr/jobs", methods=["POST"])
+    @require_api_access
     def api_ocr_async():
         if "file" not in request.files:
             return jsonify({"error": "No file provided"}), 400
@@ -225,6 +230,7 @@ def register_routes(app):
             return jsonify({"error": str(exc)}), 500
 
     @app.route("/api/ocr/jobs/<job_id>", methods=["GET"])
+    @require_api_access
     def api_ocr_job_status(job_id):
         job = _job_manager().snapshot(job_id)
         if job is None:
@@ -252,6 +258,7 @@ def register_routes(app):
         return jsonify(response)
 
     @app.route("/api/ocr/jobs/<job_id>/cancel", methods=["POST"])
+    @require_api_access
     def api_ocr_job_cancel(job_id):
         job = _job_manager().cancel(job_id)
         if job is None:
@@ -261,6 +268,7 @@ def register_routes(app):
         return jsonify({"success": True, "job_id": job_id, "status": job["status"]})
 
     @app.route("/api/ocr/jobs/<job_id>/retry", methods=["POST"])
+    @require_api_access
     def api_ocr_job_retry(job_id):
         before = _job_manager().snapshot(job_id)
         if before is None:
@@ -309,6 +317,7 @@ def register_routes(app):
                 "initialized": _ocr_engine().initialized,
                 "system": _system_status(),
                 "background_jobs": _job_manager().summary(),
+                "worker": _job_manager().worker_health(),
                 "timestamp": datetime.now().isoformat(),
             }
         )
@@ -388,6 +397,55 @@ def _run_ocr_pipeline(paths):
         paths=paths,
         system_status=_system_status(),
     )
+
+
+def require_api_access(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        unauthorized = _validate_api_key()
+        if unauthorized is not None:
+            return unauthorized
+        limited = _enforce_rate_limit()
+        if limited is not None:
+            return limited
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+def _validate_api_key():
+    api_key = current_app.config.get("API_KEY", "").strip()
+    if not api_key:
+        return None
+
+    presented = request.headers.get("X-API-Key", "").strip()
+    if not presented:
+        authorization = request.headers.get("Authorization", "")
+        if authorization.startswith("Bearer "):
+            presented = authorization.split(" ", 1)[1].strip()
+    if presented == api_key:
+        return None
+    return jsonify({"error": "Unauthorized"}), 401
+
+
+def _enforce_rate_limit():
+    limit = current_app.config.get("API_RATE_LIMIT", 0)
+    window = current_app.config.get("API_RATE_WINDOW_SECONDS", 60)
+    if limit <= 0:
+        return None
+
+    identity = request.headers.get("X-API-Key") or request.remote_addr or "anonymous"
+    now = time.time()
+    bucket = _RATE_LIMIT_STATE.setdefault(identity, [])
+    bucket[:] = [timestamp for timestamp in bucket if now - timestamp < window]
+    if len(bucket) >= limit:
+        retry_after = max(1, int(window - (now - bucket[0])))
+        response = jsonify({"error": "Rate limit exceeded", "retry_after": retry_after})
+        response.status_code = 429
+        response.headers["Retry-After"] = str(retry_after)
+        return response
+    bucket.append(now)
+    return None
 
 
 def _prune_saved_runs():

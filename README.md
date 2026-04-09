@@ -157,9 +157,14 @@ The app reads configuration from environment variables.
 | `LOG_LEVEL` | `INFO` | Application log level |
 | `BACKGROUND_OCR_WORKERS` | `2` | Number of in-process OCR background workers |
 | `BACKGROUND_JOB_TIMEOUT` | `300` | Queue job timeout in seconds |
+| `MAX_STORED_JOBS` | `200` | Maximum persisted terminal job records to retain |
+| `JOB_RETENTION_DAYS` | `7` | Age-based retention limit for completed, failed, and canceled jobs |
 | `OCR_QUEUE_BACKEND` | `local` | `local` for in-process jobs, `redis` for external queue workers |
 | `OCR_QUEUE_NAME` | `ocr` | Queue name used by async OCR jobs |
 | `REDIS_URL` | `redis://localhost:6379/0` | Redis connection URL for queued OCR jobs |
+| `API_KEY` | empty | Optional API key required for `/api/*` routes when set |
+| `API_RATE_LIMIT` | `30` | Maximum API requests per rate window per client |
+| `API_RATE_WINDOW_SECONDS` | `60` | Rate limit window size in seconds |
 | `ENABLE_TESSERACT` | `true` | Enable the Tesseract engine |
 | `ENABLE_EASYOCR` | `false` | Enable the EasyOCR engine |
 | `ENABLE_TROCR` | `false` | Enable the TrOCR engine |
@@ -281,6 +286,8 @@ curl -X POST http://127.0.0.1:5000/api/ocr/jobs/<job_id>/retry
 
 Cancellation is only supported while a job is still queued. Retry is supported for failed or canceled jobs as long as the original uploaded file is still available on disk.
 
+When `API_KEY` is configured, send it with either `X-API-Key: ...` or `Authorization: Bearer ...`. API routes are also rate-limited per client based on `API_RATE_LIMIT` and `API_RATE_WINDOW_SECONDS`.
+
 ## Docker Compose
 
 Run the web app, Redis worker queue, and Ollama together:
@@ -307,6 +314,7 @@ Notes:
 - The app container uses `http://ollama:11434/api/generate` internally.
 - The Compose stack sets `OCR_QUEUE_BACKEND=redis` and `REDIS_URL=redis://redis:6379/0` for the app and worker.
 - The `worker` service runs `scripts/run_ocr_worker.py` and processes queued OCR jobs outside the web process.
+- The app health payload now reports worker heartbeat status under `worker`, and terminal async jobs are pruned according to `MAX_STORED_JOBS` and `JOB_RETENTION_DAYS`.
 - Ollama data is stored in the named volume `ollama_data`.
 - Uploaded files and the SQLite database are stored in named Docker volumes as well.
 - If Docker commands fail with a permissions error, add your user to the `docker` group and start a new shell session.

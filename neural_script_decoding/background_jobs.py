@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from .files import cleanup_files
 from .ocr import MultiOCREngine
 from .services import process_ocr_file
-from .storage import create_job, get_job, list_jobs, prune_old_runs, save_run, summarize_jobs, update_job
+from .storage import create_job, get_job, list_jobs, prune_jobs, prune_old_runs, save_run, summarize_jobs, update_job
 
 try:  # pragma: no cover - optional dependency path
     from redis import Redis
@@ -25,6 +25,11 @@ except ImportError:  # pragma: no cover - optional dependency path
 
 
 logger = logging.getLogger(__name__)
+WORKER_HEARTBEAT_KEY = "ocr-worker-heartbeat"
+
+
+def worker_heartbeat_key(queue_name):
+    return f"{WORKER_HEARTBEAT_KEY}:{queue_name}"
 
 
 def create_job_manager(*, config, ocr_engine):
@@ -79,8 +84,10 @@ class InProcessOCRJobManager:
         return get_job(self._config["DATABASE_PATH"], job_id)
 
     def summary(self):
+        self.prune_finished()
         counts = summarize_jobs(self._config["DATABASE_PATH"])
         counts["backend"] = "local"
+        counts["worker_healthy"] = True
         return counts
 
     def list(self, limit=50):
@@ -125,6 +132,18 @@ class InProcessOCRJobManager:
             system_status=job["system_status"],
             attempt_count=(job["attempt_count"] or 0) + 1,
         )
+
+    def prune_finished(self):
+        deleted_jobs = prune_jobs(
+            self._config["DATABASE_PATH"],
+            keep_limit=self._config["MAX_STORED_JOBS"],
+            retention_days=self._config["JOB_RETENTION_DAYS"],
+        )
+        _cleanup_job_artifacts(deleted_jobs)
+        return deleted_jobs
+
+    def worker_health(self):
+        return {"healthy": True, "reason": "In-process workers active"}
 
     def _run_job(self, job_id, paths, system_status):
         try:
@@ -214,9 +233,11 @@ class RedisOCRJobManager:
         return snapshot
 
     def summary(self):
+        self.prune_finished()
         counts = summarize_jobs(self._config["DATABASE_PATH"])
         counts["backend"] = "redis"
         counts["queue_name"] = self._queue.name
+        counts["worker_healthy"] = self.worker_health()["healthy"]
         return counts
 
     def list(self, limit=50):
@@ -262,6 +283,26 @@ class RedisOCRJobManager:
             system_status=job["system_status"],
             attempt_count=(job["attempt_count"] or 0) + 1,
         )
+
+    def prune_finished(self):
+        deleted_jobs = prune_jobs(
+            self._config["DATABASE_PATH"],
+            keep_limit=self._config["MAX_STORED_JOBS"],
+            retention_days=self._config["JOB_RETENTION_DAYS"],
+        )
+        _cleanup_job_artifacts(deleted_jobs)
+        return deleted_jobs
+
+    def worker_health(self):
+        heartbeat = None
+        try:
+            heartbeat = self._connection.get(worker_heartbeat_key(self._queue.name))
+        except Exception:
+            return {"healthy": False, "reason": "Unable to read worker heartbeat"}
+        if not heartbeat:
+            return {"healthy": False, "reason": "No worker heartbeat reported"}
+        heartbeat_value = heartbeat.decode("utf-8") if isinstance(heartbeat, bytes) else str(heartbeat)
+        return {"healthy": True, "reason": "Heartbeat active", "last_seen": heartbeat_value}
 
 
 def run_ocr_job(*, job_id, paths, system_status, config_snapshot, ocr_engine=None):
@@ -340,6 +381,8 @@ def _job_config_snapshot(config):
         "OLLAMA_MODEL": config["OLLAMA_MODEL"],
         "OLLAMA_STATUS_TIMEOUT": config["OLLAMA_STATUS_TIMEOUT"],
         "BACKGROUND_JOB_TIMEOUT": config["BACKGROUND_JOB_TIMEOUT"],
+        "MAX_STORED_JOBS": config["MAX_STORED_JOBS"],
+        "JOB_RETENTION_DAYS": config["JOB_RETENTION_DAYS"],
         "OCR_QUEUE_NAME": config["OCR_QUEUE_NAME"],
         "REDIS_URL": config["REDIS_URL"],
     }
@@ -355,6 +398,18 @@ def _prune_saved_runs(database_path, upload_folder, keep_limit):
         if run.get("overlay_file_name"):
             cleanup_files(os.path.join(upload_folder, run["overlay_file_name"]))
     return [dict(run) for run in deleted]
+
+
+def _cleanup_job_artifacts(jobs):
+    for job in jobs:
+        paths = job.get("paths", {})
+        cleanup_files(paths.get("file_path"), paths.get("preprocessed_path"))
+        if not job.get("run_id"):
+            cleanup_files(
+                job.get("preview_file_name") and os.path.join(os.path.dirname(paths.get("file_path", "")), job["preview_file_name"]),
+                job.get("overlay_file_name") and os.path.join(os.path.dirname(paths.get("file_path", "")), job["overlay_file_name"]),
+                job.get("pdf_file_name") and os.path.join(os.path.dirname(paths.get("file_path", "")), job["pdf_file_name"]),
+            )
 
 
 def _rq_status(status):

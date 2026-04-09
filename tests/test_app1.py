@@ -9,11 +9,12 @@ from flask import Flask
 
 import app
 import app1
+from neural_script_decoding import background_jobs
 from neural_script_decoding.background_jobs import InProcessOCRJobManager, create_job_manager
 from neural_script_decoding.config import apply_config
 from neural_script_decoding import services
 from neural_script_decoding import web
-from neural_script_decoding.storage import init_db
+from neural_script_decoding.storage import get_job, init_db, prune_jobs
 
 
 @pytest.fixture()
@@ -27,11 +28,17 @@ def client(tmp_path, monkeypatch):
         UPLOAD_FOLDER=str(upload_dir),
         DATABASE_PATH=str(database_path),
         MAX_SAVED_RUNS=100,
+        MAX_STORED_JOBS=100,
+        JOB_RETENTION_DAYS=7,
         BACKGROUND_OCR_WORKERS=1,
+        API_KEY="",
+        API_RATE_LIMIT=30,
+        API_RATE_WINDOW_SECONDS=60,
         WTF_CSRF_ENABLED=False,
     )
     init_db(app1.app.config["DATABASE_PATH"])
     app1.app.extensions["ocr_job_manager"] = InProcessOCRJobManager(config=app1.app.config, ocr_engine=app1.ocr_engine)
+    web._RATE_LIMIT_STATE.clear()
 
     monkeypatch.setattr(
         app1.ocr_engine,
@@ -389,6 +396,7 @@ def test_health_reports_background_job_summary(client):
     payload = response.get_json()
     assert payload["background_jobs"]["total"] == 0
     assert payload["background_jobs"]["queued"] == 0
+    assert payload["worker"]["healthy"] is True
 
 
 def test_history_filters_and_delete(client):
@@ -504,6 +512,111 @@ def test_job_manager_factory_uses_local_backend_by_default():
     manager = create_job_manager(config=app1.app.config, ocr_engine=app1.ocr_engine)
 
     assert manager.summary()["backend"] == "local"
+
+
+def test_job_retention_prunes_terminal_jobs_and_orphan_files(client):
+    upload_dir = Path(app1.app.config["UPLOAD_FOLDER"])
+    old_source = upload_dir / "old.jpg"
+    old_source.write_bytes(b"old")
+    old_preview = upload_dir / "old_preview.jpg"
+    old_preview.write_bytes(b"preview")
+
+    with sqlite3.connect(app1.app.config["DATABASE_PATH"]) as connection:
+        connection.execute(
+            """
+            INSERT INTO ocr_jobs (
+                id, file_name, original_file_name, backend, status, attempt_count, queue_job_id,
+                error_message, result_payload_json, run_id, pdf_file_name, preview_file_name, overlay_file_name,
+                paths_json, system_status_json, created_at, started_at, completed_at, canceled_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "old-job",
+                "old.jpg",
+                "old.jpg",
+                "local",
+                "failed",
+                1,
+                None,
+                "boom",
+                None,
+                None,
+                None,
+                "old_preview.jpg",
+                None,
+                json.dumps({"file_path": str(old_source), "preprocessed_path": str(upload_dir / "old_preprocessed.jpg")}),
+                json.dumps({}),
+                "2020-01-01T00:00:00+00:00",
+                None,
+                "2020-01-01T00:01:00+00:00",
+                None,
+            ),
+        )
+        connection.commit()
+
+    pruned = app1.app.extensions["ocr_job_manager"].prune_finished()
+
+    assert len(pruned) == 1
+    assert get_job(app1.app.config["DATABASE_PATH"], "old-job") is None
+    assert not old_source.exists()
+    assert not old_preview.exists()
+
+
+def test_api_requires_key_when_configured(client):
+    app1.app.config["API_KEY"] = "secret-key"
+
+    response = client.post(
+        "/api/ocr/jobs",
+        data={"file": (BytesIO(b"fake-image-bytes"), "note.jpg")},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 401
+    assert response.get_json()["error"] == "Unauthorized"
+
+
+def test_api_enforces_rate_limit(client):
+    app1.app.config["API_RATE_LIMIT"] = 1
+    app1.app.config["API_RATE_WINDOW_SECONDS"] = 60
+
+    first = client.get("/api/ocr/jobs/missing-job")
+    second = client.get("/api/ocr/jobs/missing-job")
+
+    assert first.status_code == 404
+    assert second.status_code == 429
+    assert second.get_json()["error"] == "Rate limit exceeded"
+
+
+def test_redis_job_manager_reports_worker_health(monkeypatch):
+    class FakeRedisConnection:
+        def get(self, key):
+            assert key == background_jobs.worker_heartbeat_key("ocr")
+            return b"2026-01-01T00:00:00+00:00"
+
+    class FakeRedis:
+        @classmethod
+        def from_url(cls, url):
+            assert url == "redis://localhost:6379/0"
+            return FakeRedisConnection()
+
+    class FakeQueue:
+        def __init__(self, name, connection, default_timeout):
+            self.name = name
+            self.connection = connection
+            self.default_timeout = default_timeout
+
+    monkeypatch.setattr(background_jobs, "Redis", FakeRedis)
+    monkeypatch.setattr(background_jobs, "Queue", FakeQueue)
+    monkeypatch.setattr(background_jobs, "Job", object)
+    app1.app.config["OCR_QUEUE_BACKEND"] = "redis"
+
+    manager = create_job_manager(config=app1.app.config, ocr_engine=app1.ocr_engine)
+
+    summary = manager.summary()
+    assert summary["backend"] == "redis"
+    assert summary["worker_healthy"] is True
+
+    app1.app.config["OCR_QUEUE_BACKEND"] = "local"
 
 
 def test_health_reports_engine_status(client):
