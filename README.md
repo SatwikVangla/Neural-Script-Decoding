@@ -13,6 +13,7 @@ Neural Script Decoding is a Flask application for extracting text from handwritt
 - Local Ollama correction pass before PDF generation
 - Optional background OCR job API for long-running requests
 - Persisted async job history with retry and cancellation controls
+- System operations page for auth, rate-limit, worker, and retention visibility
 - Safer download handling and cleanup of temporary upload artifacts
 - Responsive frontend for upload, review, and export flows
 - Automated tests for upload, API, health, and download behavior
@@ -287,6 +288,11 @@ curl -X POST http://127.0.0.1:5000/api/ocr/jobs/<job_id>/retry
 Cancellation is only supported while a job is still queued. Retry is supported for failed or canceled jobs as long as the original uploaded file is still available on disk.
 
 When `API_KEY` is configured, send it with either `X-API-Key: ...` or `Authorization: Bearer ...`. API routes are also rate-limited per client based on `API_RATE_LIMIT` and `API_RATE_WINDOW_SECONDS`.
+
+The UI now also exposes:
+
+- `/diagnostics` for OCR/runtime dependency checks
+- `/system` for API protection, worker heartbeat, queue counts, and retention settings
 
 ## Docker Compose
 

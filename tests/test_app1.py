@@ -389,6 +389,18 @@ def test_diagnostics_page_renders_runtime_state(client):
     assert b"uploads" in response.data
 
 
+def test_system_page_renders_operations_state(client):
+    app1.app.config["API_KEY"] = "secret-key"
+
+    response = client.get("/system")
+
+    assert response.status_code == 200
+    assert b"System controls and queue visibility" in response.data
+    assert b"Required" in response.data
+    assert b"30 requests per 60 seconds" in response.data
+    assert b"In-process workers active" in response.data
+
+
 def test_health_reports_background_job_summary(client):
     response = client.get("/health")
 

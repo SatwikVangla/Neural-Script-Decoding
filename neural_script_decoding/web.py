@@ -47,6 +47,14 @@ def register_routes(app):
             system_status=_system_status(),
         )
 
+    @app.route("/system")
+    def system_admin():
+        return render_template(
+            "system.html",
+            operations=_operations_snapshot(),
+            system_status=_system_status(),
+        )
+
     @app.route("/jobs/<job_id>")
     def job_detail(job_id):
         job = _job_manager().snapshot(job_id)
@@ -397,6 +405,33 @@ def _run_ocr_pipeline(paths):
         paths=paths,
         system_status=_system_status(),
     )
+
+
+def _operations_snapshot():
+    summary = _job_manager().summary()
+    worker = _job_manager().worker_health()
+    return {
+        "api": {
+            "auth_required": bool(current_app.config.get("API_KEY", "").strip()),
+            "rate_limit": current_app.config.get("API_RATE_LIMIT", 0),
+            "rate_window_seconds": current_app.config.get("API_RATE_WINDOW_SECONDS", 60),
+        },
+        "jobs": {
+            "backend": summary.get("backend"),
+            "queue_name": summary.get("queue_name", ""),
+            "worker_healthy": worker.get("healthy", False),
+            "worker_reason": worker.get("reason", "Unknown"),
+            "worker_last_seen": worker.get("last_seen", ""),
+            "queued": summary.get("queued", 0),
+            "running": summary.get("running", 0),
+            "completed": summary.get("completed", 0),
+            "failed": summary.get("failed", 0),
+            "canceled": summary.get("canceled", 0),
+            "total": summary.get("total", 0),
+            "max_stored_jobs": current_app.config.get("MAX_STORED_JOBS"),
+            "retention_days": current_app.config.get("JOB_RETENTION_DAYS"),
+        },
+    }
 
 
 def require_api_access(view):

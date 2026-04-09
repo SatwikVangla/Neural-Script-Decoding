@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>System Operations</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="page-shell">
+    <section class="hero stagger">
+      <div class="hero-row">
+        <div class="hero-brand">
+          <p class="eyebrow">Operations</p>
+          <h1>System controls and queue visibility</h1>
+          <p>Review API exposure, worker activity, queue health, and retention settings from one place.</p>
+        </div>
+        <a class="hero-chip" href="{{ url_for('index') }}">Back To Upload</a>
+      </div>
+    </section>
+
+    <section class="layout">
+      <article class="panel stagger">
+        <div class="panel-inner">
+          <p class="section-label">API Access</p>
+          <h2 class="section-title">Authentication and rate control</h2>
+          <div class="status-list">
+            <div class="status-row">
+              <div>
+                <strong>API authentication</strong>
+                <p class="helper">Protected with `X-API-Key` or `Authorization: Bearer` when enabled.</p>
+              </div>
+              <span class="status-pill {{ 'active' if operations.api.auth_required else 'inactive' }}">
+                {{ 'Required' if operations.api.auth_required else 'Open' }}
+              </span>
+            </div>
+            <div class="status-row">
+              <div>
+                <strong>Rate limit</strong>
+                <p class="helper">{{ operations.api.rate_limit }} requests per {{ operations.api.rate_window_seconds }} seconds.</p>
+              </div>
+              <span class="status-pill active">Enabled</span>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <aside class="panel stagger">
+        <div class="panel-inner">
+          <p class="section-label">Queue Status</p>
+          <h2 class="section-title">Worker and retention</h2>
+          <div class="status-list">
+            <div class="status-row">
+              <div>
+                <strong>Queue backend</strong>
+                <p class="helper">{{ operations.jobs.queue_name or 'in-process queue' }}</p>
+              </div>
+              <span class="status-pill active">{{ operations.jobs.backend }}</span>
+            </div>
+            <div class="status-row">
+              <div>
+                <strong>Worker health</strong>
+                <p class="helper">{{ operations.jobs.worker_reason }}</p>
+              </div>
+              <span class="status-pill {{ 'active' if operations.jobs.worker_healthy else 'inactive' }}">
+                {{ 'Healthy' if operations.jobs.worker_healthy else 'Check worker' }}
+              </span>
+            </div>
+            <div class="status-row">
+              <div>
+                <strong>Job retention</strong>
+                <p class="helper">Keep up to {{ operations.jobs.max_stored_jobs }} terminal jobs for {{ operations.jobs.retention_days }} days.</p>
+              </div>
+              <span class="status-pill active">Configured</span>
+            </div>
+          </div>
+          {% if operations.jobs.worker_last_seen %}
+            <p class="footer-note">Worker last seen: {{ operations.jobs.worker_last_seen }}</p>
+          {% endif %}
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel stagger" style="margin-top: 24px;">
+      <div class="panel-inner">
+        <p class="section-label">Job Counts</p>
+        <h2 class="section-title">Persisted queue state</h2>
+        <div class="stats-grid">
+          <div class="stat-card stagger">
+            <div class="stat-value">{{ operations.jobs.total }}</div>
+            <div class="stat-label">Total jobs</div>
+          </div>
+          <div class="stat-card stagger">
+            <div class="stat-value">{{ operations.jobs.queued + operations.jobs.running }}</div>
+            <div class="stat-label">Active jobs</div>
+          </div>
+          <div class="stat-card stagger">
+            <div class="stat-value">{{ operations.jobs.failed + operations.jobs.canceled }}</div>
+            <div class="stat-label">Attention needed</div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
