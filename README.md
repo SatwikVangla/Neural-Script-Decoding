@@ -32,6 +32,14 @@ Neural Script Decoding is a Flask application for extracting text from handwritt
 - Tesseract installed on the host if you want the Tesseract engine
 - Ollama running locally if you want LLM correction
 - EasyOCR and TrOCR are disabled by default and must be explicitly enabled
+- Docker Engine plus Docker Compose if you want the containerized setup
+- Enough disk space for the selected Ollama model
+
+Practical disk guidance:
+
+- `phi3:mini` is the default local model and is much smaller than `mistral`
+- Ollama model downloads can consume multiple gigabytes
+- On systems with a small `/var` partition, Docker and containerd storage may need to be moved to a larger filesystem such as `/home`
 
 ## Installation
 
@@ -115,14 +123,14 @@ macOS / Linux:
 
 ```bash
 ollama serve
-ollama pull mistral
+ollama pull phi3:mini
 ```
 
 Windows PowerShell:
 
 ```powershell
 ollama serve
-ollama pull mistral
+ollama pull phi3:mini
 ```
 
 To make this more repeatable, the repo now includes:
@@ -150,7 +158,7 @@ The app reads configuration from environment variables.
 | `ENABLE_TROCR` | `false` | Enable the TrOCR engine |
 | `OLLAMA_STATUS_TIMEOUT` | `1.0` | Timeout for Ollama reachability checks |
 | `OLLAMA_URL` | `http://localhost:11434/api/generate` | Ollama generate endpoint |
-| `OLLAMA_MODEL` | `mistral` | Ollama model name |
+| `OLLAMA_MODEL` | `phi3:mini` | Ollama model name |
 
 Example:
 
@@ -158,7 +166,7 @@ macOS / Linux:
 
 ```bash
 export FLASK_SECRET_KEY="replace-me"
-export OLLAMA_MODEL="mistral"
+export OLLAMA_MODEL="phi3:mini"
 export ENABLE_EASYOCR="true"
 ```
 
@@ -166,7 +174,7 @@ Windows PowerShell:
 
 ```powershell
 $env:FLASK_SECRET_KEY="replace-me"
-$env:OLLAMA_MODEL="mistral"
+$env:OLLAMA_MODEL="phi3:mini"
 $env:ENABLE_EASYOCR="true"
 ```
 
@@ -184,7 +192,7 @@ Minimal local development flow:
 1. Create and activate the virtual environment.
 2. Install `requirements.txt`.
 3. Install Tesseract if you want OCR to work.
-4. Start Ollama and pull `mistral` if you want text correction.
+4. Start Ollama and pull `phi3:mini` if you want text correction.
 5. Set any needed environment variables.
 6. Start the app with `app.py`.
 7. Open `http://127.0.0.1:5000`.
@@ -202,7 +210,7 @@ In a second terminal:
 
 ```bash
 source .venv/bin/activate
-ollama pull mistral
+ollama pull phi3:mini
 export FLASK_SECRET_KEY="replace-me"
 python3 app.py
 ```
@@ -220,12 +228,12 @@ In a second PowerShell window:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
-ollama pull mistral
+ollama pull phi3:mini
 $env:FLASK_SECRET_KEY="replace-me"
 python app.py
 ```
 
-If you do not want Ollama correction yet, skip `ollama serve` and `ollama pull mistral`. The OCR flow will still run, and the UI will show Ollama as unavailable.
+If you do not want Ollama correction yet, skip `ollama serve` and `ollama pull phi3:mini`. The OCR flow will still run, and the UI will show Ollama as unavailable.
 
 Optional engines:
 
@@ -259,6 +267,22 @@ Notes:
 - The app container uses `http://ollama:11434/api/generate` internally.
 - Ollama data is stored in the named volume `ollama_data`.
 - Uploaded files and the SQLite database are stored in named Docker volumes as well.
+- If Docker commands fail with a permissions error, add your user to the `docker` group and start a new shell session.
+
+### Storage Note
+
+This project may require extra Docker storage when Ollama models are pulled.
+
+On the reference Linux setup used during development, Docker and containerd storage were moved off `/var` and onto `/home`:
+
+- Docker data root: `/home/satwik/docker-data/docker`
+- containerd root: `/home/satwik/containerd-data/containerd`
+
+If your `/var` partition is small and Ollama downloads fail with `no space left on device`, either:
+
+1. switch to a smaller model such as `phi3:mini`
+2. free space under `/var`
+3. move Docker and containerd storage to a larger filesystem
 
 To check Ollama readiness manually:
 

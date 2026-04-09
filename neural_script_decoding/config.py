@@ -15,7 +15,7 @@ def apply_config(app):
     app.config["UPLOAD_FOLDER"] = resolve_path("UPLOAD_FOLDER", Path("static") / "uploads")
     app.config["MAX_CONTENT_LENGTH"] = int(os.environ.get("MAX_CONTENT_LENGTH_MB", "16")) * 1024 * 1024
     app.config["OLLAMA_URL"] = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
-    app.config["OLLAMA_MODEL"] = os.environ.get("OLLAMA_MODEL", "mistral")
+    app.config["OLLAMA_MODEL"] = os.environ.get("OLLAMA_MODEL", "phi3:mini")
     app.config["PDF_FONT_PATH"] = resolve_path("PDF_FONT_PATH", Path("static") / "DejaVuSans.ttf")
     app.config["DATABASE_PATH"] = resolve_path("DATABASE_PATH", Path("instance") / "neural_script_decoding.sqlite3")
     app.config["APP_HOST"] = os.environ.get("APP_HOST", "0.0.0.0")
