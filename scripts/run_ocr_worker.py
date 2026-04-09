@@ -1,10 +1,16 @@
+import sys
 import threading
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 from flask import Flask
 from redis import Redis
 from rq import Connection, Worker
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from neural_script_decoding.background_jobs import worker_heartbeat_key
 from neural_script_decoding.config import apply_config
