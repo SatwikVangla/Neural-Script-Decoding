@@ -164,8 +164,8 @@ The app reads configuration from environment variables.
 | `OCR_QUEUE_NAME` | `ocr` | Queue name used by async OCR jobs |
 | `REDIS_URL` | `redis://localhost:6379/0` | Redis connection URL for queued OCR jobs |
 | `AUTH_REQUIRED` | `false` | Require session login for the web interface |
-| `ADMIN_USERNAME` | `admin` | Admin username for session login |
-| `ADMIN_PASSWORD_HASH` | empty | Werkzeug password hash for the admin password |
+| `ADMIN_USERNAME` | `admin` | Bootstrap admin username used to seed the user table |
+| `ADMIN_PASSWORD_HASH` | empty | Bootstrap Werkzeug password hash used to seed or update that user |
 | `API_KEY` | empty | Optional API key required for `/api/*` routes when set |
 | `API_RATE_LIMIT` | `30` | Maximum API requests per rate window per client |
 | `API_RATE_WINDOW_SECONDS` | `60` | Rate limit window size in seconds |
@@ -201,7 +201,7 @@ Recommended local setup:
 3. Keep `OLLAMA_MODEL` pinned to the model you actually use.
 4. For Docker Compose, keep `OLLAMA_URL` as-is in `.env`; Compose overrides it for the app container automatically.
 
-To generate an admin password hash:
+To generate a bootstrap password hash:
 
 ```bash
 .venv/bin/python -c "from werkzeug.security import generate_password_hash; print(generate_password_hash('replace-me'))"
@@ -299,6 +299,8 @@ Cancellation is only supported while a job is still queued. Retry is supported f
 When `API_KEY` is configured, send it with either `X-API-Key: ...` or `Authorization: Bearer ...`. API routes are also rate-limited per client based on `API_RATE_LIMIT` and `API_RATE_WINDOW_SECONDS`.
 
 When `AUTH_REQUIRED=true`, the web interface requires a session login at `/login`. API routes then require either a valid admin session or a valid API key.
+
+The app now stores users in SQLite and exposes user management plus an audit log through `/system`. `ADMIN_USERNAME` and `ADMIN_PASSWORD_HASH` are now bootstrap inputs for the first admin account rather than the only authentication source.
 
 The UI now also exposes:
 

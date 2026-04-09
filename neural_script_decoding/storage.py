@@ -47,6 +47,30 @@ CREATE TABLE IF NOT EXISTS ocr_jobs (
 );
 """
 
+USER_SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    last_login_at TEXT
+);
+"""
+
+AUDIT_SCHEMA = """
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor_username TEXT,
+    action TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_id TEXT,
+    details_json TEXT,
+    created_at TEXT NOT NULL
+);
+"""
+
 INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_ocr_runs_created_at ON ocr_runs(created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_ocr_runs_selected_engine ON ocr_runs(selected_engine)",
@@ -59,6 +83,16 @@ JOB_INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_ocr_jobs_status ON ocr_jobs(status)",
 )
 
+USER_INDEXES = (
+    "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)",
+    "CREATE INDEX IF NOT EXISTS idx_users_active ON users(is_active)",
+)
+
+AUDIT_INDEXES = (
+    "CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_audit_logs_actor_username ON audit_logs(actor_username)",
+)
+
 
 def init_db(database_path):
     db_path = Path(database_path)
@@ -67,9 +101,15 @@ def init_db(database_path):
     with sqlite3.connect(database_path) as connection:
         connection.execute(SCHEMA)
         connection.execute(JOB_SCHEMA)
+        connection.execute(USER_SCHEMA)
+        connection.execute(AUDIT_SCHEMA)
         for statement in INDEXES:
             connection.execute(statement)
         for statement in JOB_INDEXES:
+            connection.execute(statement)
+        for statement in USER_INDEXES:
+            connection.execute(statement)
+        for statement in AUDIT_INDEXES:
             connection.execute(statement)
         columns = [row[1] for row in connection.execute("PRAGMA table_info(ocr_runs)").fetchall()]
         if "original_file_name" not in columns:
@@ -331,4 +371,125 @@ def _deserialize_job(row):
         )
     else:
         row["result_payload"] = None
+    return row
+
+
+def upsert_user(database_path, *, username, password_hash, is_active=True):
+    now = datetime.now(timezone.utc).isoformat()
+    with sqlite3.connect(database_path) as connection:
+        existing = connection.execute(
+            "SELECT id FROM users WHERE username = ?",
+            (username,),
+        ).fetchone()
+        if existing:
+            connection.execute(
+                """
+                UPDATE users
+                SET password_hash = ?, is_active = ?, updated_at = ?
+                WHERE username = ?
+                """,
+                (password_hash, int(is_active), now, username),
+            )
+        else:
+            connection.execute(
+                """
+                INSERT INTO users (username, password_hash, is_active, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (username, password_hash, int(is_active), now, now),
+            )
+        connection.commit()
+    return get_user_by_username(database_path, username)
+
+
+def get_user_by_username(database_path, username):
+    with sqlite3.connect(database_path) as connection:
+        connection.row_factory = sqlite3.Row
+        row = connection.execute(
+            """
+            SELECT id, username, password_hash, is_active, created_at, updated_at, last_login_at
+            FROM users
+            WHERE username = ?
+            """,
+            (username,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def list_users(database_path):
+    with sqlite3.connect(database_path) as connection:
+        connection.row_factory = sqlite3.Row
+        rows = connection.execute(
+            """
+            SELECT id, username, is_active, created_at, updated_at, last_login_at
+            FROM users
+            ORDER BY username ASC
+            """
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def update_user_password(database_path, *, username, password_hash):
+    now = datetime.now(timezone.utc).isoformat()
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            UPDATE users
+            SET password_hash = ?, updated_at = ?
+            WHERE username = ?
+            """,
+            (password_hash, now, username),
+        )
+        connection.commit()
+    return get_user_by_username(database_path, username)
+
+
+def touch_user_login(database_path, username):
+    now = datetime.now(timezone.utc).isoformat()
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            "UPDATE users SET last_login_at = ?, updated_at = ? WHERE username = ?",
+            (now, now, username),
+        )
+        connection.commit()
+    return get_user_by_username(database_path, username)
+
+
+def create_audit_log(database_path, *, actor_username, action, target_type, target_id=None, details=None):
+    created_at = datetime.now(timezone.utc).isoformat()
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO audit_logs (actor_username, action, target_type, target_id, details_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                actor_username,
+                action,
+                target_type,
+                target_id,
+                json.dumps(details or {}, ensure_ascii=False),
+                created_at,
+            ),
+        )
+        connection.commit()
+
+
+def list_audit_logs(database_path, limit=50):
+    with sqlite3.connect(database_path) as connection:
+        connection.row_factory = sqlite3.Row
+        rows = connection.execute(
+            """
+            SELECT id, actor_username, action, target_type, target_id, details_json, created_at
+            FROM audit_logs
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [_deserialize_audit_log(dict(row)) for row in rows]
+
+
+def _deserialize_audit_log(row):
+    row["details"] = json.loads(row["details_json"]) if row.get("details_json") else {}
     return row

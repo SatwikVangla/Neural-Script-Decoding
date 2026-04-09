@@ -22,16 +22,34 @@
     <section class="layout">
       <article class="panel stagger">
         <div class="panel-inner">
+          {% with messages = get_flashed_messages() %}
+            {% if messages %}
+              <div class="flash-stack">
+                {% for message in messages %}
+                  <div class="flash">{{ message }}</div>
+                {% endfor %}
+              </div>
+            {% endif %}
+          {% endwith %}
           <p class="section-label">Web Access</p>
           <h2 class="section-title">Session authentication</h2>
           <div class="status-list">
             <div class="status-row">
               <div>
                 <strong>Web login</strong>
-                <p class="helper">Admin username: {{ operations.web.admin_username or 'not configured' }}</p>
+                <p class="helper">Bootstrap admin username: {{ operations.web.admin_username or 'not configured' }}</p>
               </div>
               <span class="status-pill {{ 'active' if operations.web.auth_required else 'inactive' }}">
                 {{ 'Required' if operations.web.auth_required else 'Open' }}
+              </span>
+            </div>
+            <div class="status-row">
+              <div>
+                <strong>Current session</strong>
+                <p class="helper">{{ operations.web.current_user or 'No active session' }}</p>
+              </div>
+              <span class="status-pill {{ 'active' if operations.web.current_user else 'inactive' }}">
+                {{ 'Signed in' if operations.web.current_user else 'Anonymous' }}
               </span>
             </div>
           </div>
@@ -114,6 +132,66 @@
           </div>
         </div>
       </div>
+    </section>
+
+    <section class="layout" style="margin-top: 24px;">
+      <article class="panel stagger">
+        <div class="panel-inner">
+          <p class="section-label">Users</p>
+          <h2 class="section-title">Stored admin accounts</h2>
+          <form method="post" action="{{ url_for('create_or_update_user') }}" class="upload-form">
+            <label>
+              <strong>Username</strong>
+              <input class="history-input" type="text" name="username" required>
+            </label>
+            <label>
+              <strong>Password</strong>
+              <input class="history-input" type="password" name="password" required>
+            </label>
+            <div class="actions-row">
+              <button class="button" type="submit">Create or Update User</button>
+            </div>
+          </form>
+
+          <div class="history-list" style="margin-top: 24px;">
+            {% for user in users %}
+              <div class="history-item stagger">
+                <div>
+                  <strong>{{ user.username }}</strong>
+                  <p class="helper">Created {{ user.created_at }} | Last login {{ user.last_login_at or 'never' }}</p>
+                </div>
+                <div class="history-meta">
+                  <span>{{ 'Active' if user.is_active else 'Inactive' }}</span>
+                  <form method="post" action="{{ url_for('rotate_user_password', username=user.username) }}" class="inline-form">
+                    <input class="history-input" type="password" name="password" placeholder="New password" required>
+                    <button class="ghost-button" type="submit">Rotate Password</button>
+                  </form>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      </article>
+
+      <aside class="panel stagger">
+        <div class="panel-inner">
+          <p class="section-label">Audit Log</p>
+          <h2 class="section-title">Recent security events</h2>
+          <div class="history-list">
+            {% for event in audit_logs %}
+              <div class="history-item stagger">
+                <div>
+                  <strong>{{ event.action }}</strong>
+                  <p class="helper">{{ event.actor_username or 'unknown actor' }} -> {{ event.target_type }} {{ event.target_id or '' }}</p>
+                </div>
+                <div class="history-meta">
+                  <span>{{ event.created_at }}</span>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      </aside>
     </section>
   </main>
 </body>

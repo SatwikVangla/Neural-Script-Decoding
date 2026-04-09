@@ -6,11 +6,24 @@ from datetime import datetime
 from functools import wraps
 
 from flask import abort, current_app, flash, g, jsonify, redirect, render_template, request, send_from_directory, session, url_for
-from werkzeug.security import check_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from .files import allowed_file, build_upload_paths, cleanup_files
 from .services import diagnostics_snapshot, json_download_response, ollama_status, process_ocr_file
-from .storage import delete_run, get_run, list_runs, prune_old_runs, save_run
+from .storage import (
+    create_audit_log,
+    delete_run,
+    get_run,
+    get_user_by_username,
+    list_audit_logs,
+    list_runs,
+    list_users,
+    prune_old_runs,
+    save_run,
+    touch_user_login,
+    update_user_password,
+    upsert_user,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -38,14 +51,36 @@ def register_routes(app):
             if _authenticate(username, password):
                 session["authenticated"] = True
                 session["username"] = username
+                touch_user_login(current_app.config["DATABASE_PATH"], username)
+                create_audit_log(
+                    current_app.config["DATABASE_PATH"],
+                    actor_username=username,
+                    action="login_success",
+                    target_type="session",
+                    target_id=username,
+                )
                 flash("Signed in")
                 return redirect(request.args.get("next") or url_for("index"))
+            create_audit_log(
+                current_app.config["DATABASE_PATH"],
+                actor_username=username or None,
+                action="login_failed",
+                target_type="session",
+                target_id=username or None,
+            )
             flash("Invalid credentials")
         return render_template("login.html")
 
     @app.route("/logout", methods=["POST"])
     @require_login
     def logout():
+        create_audit_log(
+            current_app.config["DATABASE_PATH"],
+            actor_username=session.get("username"),
+            action="logout",
+            target_type="session",
+            target_id=session.get("username"),
+        )
         session.clear()
         flash("Signed out")
         return redirect(url_for("login"))
@@ -84,8 +119,61 @@ def register_routes(app):
         return render_template(
             "system.html",
             operations=_operations_snapshot(),
+            users=list_users(current_app.config["DATABASE_PATH"]),
+            audit_logs=list_audit_logs(current_app.config["DATABASE_PATH"], limit=25),
             system_status=_system_status(),
         )
+
+    @app.route("/system/users", methods=["POST"])
+    @require_login
+    def create_or_update_user():
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        if not username or not password:
+            flash("Username and password are required")
+            return redirect(url_for("system_admin"))
+
+        existed = get_user_by_username(current_app.config["DATABASE_PATH"], username) is not None
+        upsert_user(
+            current_app.config["DATABASE_PATH"],
+            username=username,
+            password_hash=generate_password_hash(password),
+            is_active=True,
+        )
+        create_audit_log(
+            current_app.config["DATABASE_PATH"],
+            actor_username=session.get("username"),
+            action="user_created" if not existed else "user_updated",
+            target_type="user",
+            target_id=username,
+        )
+        flash("User saved")
+        return redirect(url_for("system_admin"))
+
+    @app.route("/system/users/<username>/password", methods=["POST"])
+    @require_login
+    def rotate_user_password(username):
+        password = request.form.get("password", "")
+        if not password:
+            flash("Password is required")
+            return redirect(url_for("system_admin"))
+        user = get_user_by_username(current_app.config["DATABASE_PATH"], username)
+        if user is None:
+            abort(404)
+        update_user_password(
+            current_app.config["DATABASE_PATH"],
+            username=username,
+            password_hash=generate_password_hash(password),
+        )
+        create_audit_log(
+            current_app.config["DATABASE_PATH"],
+            actor_username=session.get("username"),
+            action="password_rotated",
+            target_type="user",
+            target_id=username,
+        )
+        flash("Password rotated")
+        return redirect(url_for("system_admin"))
 
     @app.route("/jobs/<job_id>")
     @require_login
@@ -457,6 +545,7 @@ def _operations_snapshot():
         "web": {
             "auth_required": bool(current_app.config.get("AUTH_REQUIRED", False)),
             "admin_username": current_app.config.get("ADMIN_USERNAME", ""),
+            "current_user": session.get("username", ""),
         },
         "api": {
             "auth_required": bool(current_app.config.get("API_KEY", "").strip()),
@@ -548,9 +637,10 @@ def _enforce_rate_limit():
 
 
 def _authenticate(username, password):
-    expected_username = current_app.config.get("ADMIN_USERNAME", "")
-    password_hash = current_app.config.get("ADMIN_PASSWORD_HASH", "")
-    return username == expected_username and bool(password_hash) and check_password_hash(password_hash, password)
+    user = get_user_by_username(current_app.config["DATABASE_PATH"], username)
+    if user is None or not user.get("is_active"):
+        return False
+    return check_password_hash(user["password_hash"], password)
 
 
 def _session_authenticated():

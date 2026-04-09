@@ -15,7 +15,7 @@ from neural_script_decoding.background_jobs import InProcessOCRJobManager, creat
 from neural_script_decoding.config import apply_config
 from neural_script_decoding import services
 from neural_script_decoding import web
-from neural_script_decoding.storage import get_job, init_db, prune_jobs
+from neural_script_decoding.storage import get_job, init_db, list_audit_logs, prune_jobs, upsert_user
 
 
 @pytest.fixture()
@@ -535,7 +535,12 @@ def test_apply_config_requires_password_hash_when_auth_enabled(monkeypatch):
 
 def test_login_required_redirects_to_login(client):
     app1.app.config["AUTH_REQUIRED"] = True
-    app1.app.config["ADMIN_PASSWORD_HASH"] = generate_password_hash("secret-pass")
+    upsert_user(
+        app1.app.config["DATABASE_PATH"],
+        username="admin",
+        password_hash=generate_password_hash("secret-pass"),
+        is_active=True,
+    )
 
     response = client.get("/", follow_redirects=False)
 
@@ -545,8 +550,12 @@ def test_login_required_redirects_to_login(client):
 
 def test_login_allows_session_access_when_auth_enabled(client):
     app1.app.config["AUTH_REQUIRED"] = True
-    app1.app.config["ADMIN_USERNAME"] = "admin"
-    app1.app.config["ADMIN_PASSWORD_HASH"] = generate_password_hash("secret-pass")
+    upsert_user(
+        app1.app.config["DATABASE_PATH"],
+        username="admin",
+        password_hash=generate_password_hash("secret-pass"),
+        is_active=True,
+    )
 
     login_page = client.get("/login")
     assert login_page.status_code == 200
@@ -563,6 +572,9 @@ def test_login_allows_session_access_when_auth_enabled(client):
 
     api = client.get("/api/ocr/jobs/missing-job")
     assert api.status_code == 404
+
+    audit_events = list_audit_logs(app1.app.config["DATABASE_PATH"], limit=5)
+    assert any(event["action"] == "login_success" for event in audit_events)
 
 
 def test_job_manager_factory_uses_local_backend_by_default():
