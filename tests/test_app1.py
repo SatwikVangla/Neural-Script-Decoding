@@ -110,12 +110,29 @@ def test_api_ocr_returns_json_and_cleans_temp_files(client):
     assert payload["corrected_text"] == "fixed rich raw text output"
     assert payload["system"]["engines"]["tesseract"]["ready"] is True
     assert payload["selected_engine"] == "easyocr"
+    assert "/download/" in payload["pdf_url"]
     assert "/preview/" in payload["preview_url"]
     assert payload["regions"][0]["text"] == "rich"
 
     upload_dir = Path(app1.app.config["UPLOAD_FOLDER"])
     remaining = sorted(path.name for path in upload_dir.iterdir())
+    assert any(name.endswith(".pdf") for name in remaining)
     assert any("_preview." in name for name in remaining)
+
+
+def test_api_ocr_saved_run_has_downloadable_pdf(client):
+    response = client.post(
+        "/api/ocr",
+        data={"file": (BytesIO(b"fake-image-bytes"), "note.jpg")},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+
+    download = client.get(payload["pdf_url"])
+    assert download.status_code == 200
+    assert download.mimetype == "application/pdf"
 
 
 def test_download_json_returns_attachment(client):

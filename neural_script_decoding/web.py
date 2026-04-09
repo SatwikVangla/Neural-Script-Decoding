@@ -124,7 +124,7 @@ def register_routes(app):
                     run_id=run_id,
                 )
             except Exception as exc:
-                logger.error("Processing failed: %s", exc)
+                logger.exception("Processing failed")
                 flash(f"Error processing image: {exc}")
                 cleanup_files(paths["file_path"], paths["preprocessed_path"], paths["preview_path"], paths["overlay_path"])
                 return redirect(url_for("index"))
@@ -163,6 +163,7 @@ def register_routes(app):
             ocr_results = _ocr_engine().process_with_all_engines(paths["file_path"])
             combined_text = _ocr_engine().combine_results(ocr_results)
             corrected_text = correct_text_with_llm(combined_text, current_app.config)
+            generate_pdf(corrected_text, paths["pdf_path"], current_app.config["PDF_FONT_PATH"])
             payload = build_result_payload(
                 filename=paths["filename"],
                 original_name=paths["original_name"],
@@ -184,6 +185,7 @@ def register_routes(app):
                 {
                     "success": True,
                     "run_id": run_id,
+                    "pdf_url": url_for("download_pdf", filename=os.path.basename(paths["pdf_path"])),
                     "preview_url": url_for("preview_image", filename=os.path.basename(paths["preview_path"])),
                     "overlay_url": url_for("overlay_image", filename=os.path.basename(paths["overlay_path"])) if overlay_data.get("overlay_path") else "",
                     **payload,
