@@ -19,6 +19,32 @@ Neural Script Decoding is a Flask application for extracting text from handwritt
 - Automated tests for upload, API, health, and download behavior
 - GitHub Actions CI and a Gunicorn/Docker deployment path
 
+## Quick Start
+
+Fastest local path with the default stack:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+python3 app.py
+```
+
+Then open `http://127.0.0.1:5000`.
+
+What works with only that setup:
+
+- Web UI
+- Tesseract-based OCR if `tesseract` is installed on the host
+- Saved run history, PDF export, JSON export, jobs dashboard, diagnostics, and system pages
+
+What requires extra setup:
+
+- Ollama correction: install and run Ollama, then pull the configured model
+- EasyOCR / TrOCR: install `requirements-ocr.txt` and enable those engines explicitly
+- Redis queue mode: run Redis and the worker or use the included Docker Compose stack
+
 ## Code Layout
 
 - `app.py`: stable public entrypoint
@@ -213,6 +239,36 @@ To generate a bootstrap password hash:
 .venv/bin/python -c "from werkzeug.security import generate_password_hash; print(generate_password_hash('replace-me'))"
 ```
 
+## Route Map
+
+Primary web routes:
+
+- `GET /`: upload page and current runtime status
+- `POST /upload`: synchronous OCR from the browser form
+- `GET /history`: saved OCR runs
+- `GET /history/<run_id>`: saved run detail page
+- `GET /jobs`: async OCR job dashboard
+- `GET /jobs/<job_id>`: async OCR job detail page
+- `GET /diagnostics`: OCR/runtime dependency diagnostics
+- `GET /system`: admin operations page for auth, queue, worker, and retention state
+- `GET|POST /login`: session login when `AUTH_REQUIRED=true`
+- `POST /logout`: session logout
+- `GET /health`: machine-readable health payload
+
+Primary API routes:
+
+- `POST /api/ocr`: synchronous OCR API
+- `POST /api/ocr/jobs`: create async OCR job
+- `GET /api/ocr/jobs/<job_id>`: fetch async job status/result
+- `POST /api/ocr/jobs/<job_id>/cancel`: cancel queued job
+- `POST /api/ocr/jobs/<job_id>/retry`: retry failed or canceled job
+
+File-serving routes:
+
+- `GET /download/<filename>`: generated PDF download
+- `GET /preview/<filename>`: preview image
+- `GET /overlay/<filename>`: OCR overlay image
+
 ## Running the Project
 
 Minimal local development flow:
@@ -268,6 +324,24 @@ Optional engines:
 - Install `requirements-ocr.txt` and set `ENABLE_EASYOCR=true` to enable EasyOCR.
 - Install `requirements-ocr.txt` and set `ENABLE_TROCR=true` to enable TrOCR.
 - Leave both disabled if you only want the lighter Tesseract-based setup.
+
+## OCR and LLM Behavior
+
+Request flow:
+
+1. The upload is stored under `UPLOAD_FOLDER`.
+2. OCR runs through the enabled engines.
+3. The selected OCR text is optionally sent to Ollama for cleanup.
+4. A PDF, preview image, and overlay image are generated.
+5. The result payload is stored in SQLite and exposed through the UI/API.
+
+LLM correction behavior:
+
+- `ENABLE_LLM_CORRECTION_BY_DEFAULT=true` keeps Ollama correction on unless the request opts out.
+- Browser uploads can disable correction through the `Apply Ollama correction` checkbox.
+- API clients can send `use_llm=false` to skip correction and return raw OCR output directly.
+- If Ollama fails or times out, the app falls back to raw OCR text instead of storing an error string as corrected content.
+- `OLLAMA_WARMUP_ENABLED=true` issues a startup warmup request so the first correction request is less likely to pay model startup cost.
 
 ## Async OCR API
 
@@ -355,6 +429,15 @@ Notes:
 - Uploaded files and the SQLite database are stored in named Docker volumes as well.
 - If Docker commands fail with a permissions error, add your user to the `docker` group and start a new shell session.
 
+Typical container operations:
+
+```bash
+docker compose ps
+docker compose logs app
+docker compose logs worker
+docker compose exec ollama ollama list
+```
+
 ### Storage Note
 
 This project may require extra Docker storage when Ollama models are pulled.
@@ -376,6 +459,28 @@ To check Ollama readiness manually:
 python3 scripts/ollama_healthcheck.py http://localhost:11434/api/tags
 ```
 
+## Authentication and Access Model
+
+Web UI access:
+
+- When `AUTH_REQUIRED=false`, the browser UI is open.
+- When `AUTH_REQUIRED=true`, the UI requires a session login.
+- Users are stored in SQLite.
+- Roles are `admin` and `viewer`.
+- Only `admin` users can access `/system` and manage users.
+
+API access:
+
+- If `API_KEY` is set, API clients must send it as `X-API-Key` or `Authorization: Bearer ...` unless they already have a valid authenticated admin session.
+- API routes are rate-limited per client according to `API_RATE_LIMIT` and `API_RATE_WINDOW_SECONDS`.
+- Repeated failed web logins trigger temporary lockout according to `LOGIN_MAX_FAILURES` and `LOGIN_LOCKOUT_SECONDS`.
+
+Security notes:
+
+- Set a real `FLASK_SECRET_KEY` outside throwaway local testing.
+- Set `AUTH_REQUIRED=true` before exposing the UI beyond a trusted local machine.
+- Keep `API_KEY` set when exposing `/api/*` to other clients.
+
 ## Running Tests
 
 macOS / Linux:
@@ -392,6 +497,14 @@ pytest
 
 The tests use mocked OCR and PDF generation, so they do not require model downloads or a running Ollama instance.
 The suite also includes a real Tesseract integration test that generates a small fixture image at runtime and skips automatically when Tesseract is unavailable.
+
+Useful local verification commands:
+
+```bash
+.venv/bin/pytest -q
+.venv/bin/python -m py_compile neural_script_decoding/*.py scripts/run_ocr_worker.py
+curl http://127.0.0.1:5000/health
+```
 
 ## Continuous Integration
 
@@ -418,6 +531,17 @@ Windows PowerShell:
 ```powershell
 python serve.py
 ```
+
+## Troubleshooting
+
+Common failures:
+
+- `Ollama unreachable`: confirm `ollama serve` is running or that the Compose `ollama` service is healthy.
+- `No space left on device` during model pull: switch to `phi3:mini`, free space, or move Docker/containerd storage off a small `/var` partition.
+- `Permission denied` from Docker: add the user to the `docker` group and start a new shell.
+- Slow first LLM response: keep `OLLAMA_WARMUP_ENABLED=true` and verify the selected model is already pulled.
+- Async jobs stay queued in Redis mode: check `docker compose logs worker` or the `/system` page for worker heartbeat state.
+- OCR looks correct but corrected text is unchanged: the app may have intentionally skipped or fallen back from Ollama; check the correction metadata in the result view or API payload.
 
 Docker build and run:
 
