@@ -3,7 +3,7 @@ import os
 import json
 import secrets
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import wraps
 
 from flask import abort, current_app, flash, g, jsonify, redirect, render_template, request, send_from_directory, session, url_for
@@ -21,6 +21,7 @@ from .storage import (
     list_users,
     prune_old_runs,
     save_run,
+    record_failed_login,
     touch_user_login,
     update_user_password,
     upsert_user,
@@ -55,6 +56,18 @@ def register_routes(app):
         if request.method == "POST":
             username = request.form.get("username", "").strip()
             password = request.form.get("password", "")
+            user = get_user_by_username(current_app.config["DATABASE_PATH"], username) if username else None
+            if user and _user_locked(user):
+                create_audit_log(
+                    current_app.config["DATABASE_PATH"],
+                    actor_username=username,
+                    action="login_locked",
+                    target_type="session",
+                    target_id=username,
+                    details={"locked_until": user.get("locked_until")},
+                )
+                flash("Account temporarily locked. Try again later.")
+                return render_template("login.html")
             if _authenticate(username, password):
                 session["authenticated"] = True
                 session["username"] = username
@@ -69,14 +82,29 @@ def register_routes(app):
                 )
                 flash("Signed in")
                 return redirect(request.args.get("next") or url_for("index"))
+            updated_user = None
+            if user is not None:
+                updated_user = record_failed_login(
+                    current_app.config["DATABASE_PATH"],
+                    username,
+                    max_failures=current_app.config.get("LOGIN_MAX_FAILURES", 5),
+                    lockout_seconds=current_app.config.get("LOGIN_LOCKOUT_SECONDS", 900),
+                )
             create_audit_log(
                 current_app.config["DATABASE_PATH"],
                 actor_username=username or None,
                 action="login_failed",
                 target_type="session",
                 target_id=username or None,
+                details={
+                    "locked_until": updated_user.get("locked_until") if updated_user else None,
+                    "failed_login_count": updated_user.get("failed_login_count") if updated_user else None,
+                },
             )
-            flash("Invalid credentials")
+            if updated_user and updated_user.get("locked_until"):
+                flash("Account temporarily locked. Try again later.")
+            else:
+                flash("Invalid credentials")
         return render_template("login.html")
 
     @app.route("/logout", methods=["POST"])
@@ -688,6 +716,8 @@ def _authenticate(username, password):
     user = get_user_by_username(current_app.config["DATABASE_PATH"], username)
     if user is None or not user.get("is_active"):
         return False
+    if _user_locked(user):
+        return False
     return check_password_hash(user["password_hash"], password)
 
 
@@ -708,6 +738,16 @@ def _csrf_token():
         token = secrets.token_urlsafe(32)
         session["csrf_token"] = token
     return token
+
+
+def _user_locked(user):
+    locked_until = user.get("locked_until")
+    if not locked_until:
+        return False
+    try:
+        return datetime.fromisoformat(locked_until) > datetime.now(timezone.utc)
+    except ValueError:
+        return False
 
 
 def _prune_saved_runs():

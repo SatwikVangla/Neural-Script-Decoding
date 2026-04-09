@@ -166,6 +166,8 @@ The app reads configuration from environment variables.
 | `AUTH_REQUIRED` | `false` | Require session login for the web interface |
 | `ADMIN_USERNAME` | `admin` | Bootstrap admin username used to seed the user table |
 | `ADMIN_PASSWORD_HASH` | empty | Bootstrap Werkzeug password hash used to seed or update that user |
+| `LOGIN_MAX_FAILURES` | `5` | Failed login attempts allowed before a user is temporarily locked |
+| `LOGIN_LOCKOUT_SECONDS` | `900` | Temporary account lockout duration after repeated failed logins |
 | `API_KEY` | empty | Optional API key required for `/api/*` routes when set |
 | `API_RATE_LIMIT` | `30` | Maximum API requests per rate window per client |
 | `API_RATE_WINDOW_SECONDS` | `60` | Rate limit window size in seconds |
@@ -301,6 +303,8 @@ When `API_KEY` is configured, send it with either `X-API-Key: ...` or `Authoriza
 When `AUTH_REQUIRED=true`, the web interface requires a session login at `/login`. API routes then require either a valid admin session or a valid API key.
 
 The app now stores users in SQLite and exposes user management plus an audit log through `/system`. `ADMIN_USERNAME` and `ADMIN_PASSWORD_HASH` are now bootstrap inputs for the first admin account rather than the only authentication source.
+
+Repeated failed logins now trigger a temporary per-user lockout. Lock state is stored in SQLite and is visible from the user record in `/system`.
 
 The UI now also exposes:
 

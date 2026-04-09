@@ -166,10 +166,10 @@
               <div class="history-item stagger">
                 <div>
                   <strong>{{ user.username }}</strong>
-                  <p class="helper">Role {{ user.role }} | Created {{ user.created_at }} | Last login {{ user.last_login_at or 'never' }}</p>
+                  <p class="helper">Role {{ user.role }} | Created {{ user.created_at }} | Last login {{ user.last_login_at or 'never' }}{% if user.locked_until %} | Locked until {{ user.locked_until }}{% endif %}</p>
                 </div>
                 <div class="history-meta">
-                  <span>{{ 'Active' if user.is_active else 'Inactive' }}</span>
+                  <span>{{ 'Locked' if user.locked_until else ('Active' if user.is_active else 'Inactive') }}</span>
                   <form method="post" action="{{ url_for('rotate_user_password', username=user.username) }}" class="inline-form">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input class="history-input" type="password" name="password" placeholder="New password" required>

@@ -15,7 +15,7 @@ from neural_script_decoding.background_jobs import InProcessOCRJobManager, creat
 from neural_script_decoding.config import apply_config
 from neural_script_decoding import services
 from neural_script_decoding import web
-from neural_script_decoding.storage import get_job, init_db, list_audit_logs, prune_jobs, upsert_user
+from neural_script_decoding.storage import get_job, get_user_by_username, init_db, list_audit_logs, prune_jobs, upsert_user
 
 
 @pytest.fixture()
@@ -607,6 +607,33 @@ def test_admin_post_requires_csrf_token(client):
     response = client.post("/system/users", data={"username": "new-user", "password": "pw", "role": "viewer"})
 
     assert response.status_code == 400
+
+
+def test_login_lockout_after_repeated_failures(client):
+    app1.app.config["AUTH_REQUIRED"] = True
+    app1.app.config["LOGIN_MAX_FAILURES"] = 2
+    app1.app.config["LOGIN_LOCKOUT_SECONDS"] = 60
+    upsert_user(
+        app1.app.config["DATABASE_PATH"],
+        username="admin",
+        password_hash=generate_password_hash("secret-pass"),
+        is_active=True,
+        role="admin",
+    )
+
+    first = client.post("/login", data={"username": "admin", "password": "wrong"}, follow_redirects=True)
+    second = client.post("/login", data={"username": "admin", "password": "wrong"}, follow_redirects=True)
+    third = client.post("/login", data={"username": "admin", "password": "secret-pass"}, follow_redirects=True)
+
+    assert first.status_code == 200
+    assert b"Invalid credentials" in first.data
+    assert second.status_code == 200
+    assert b"Account temporarily locked" in second.data
+    assert third.status_code == 200
+    assert b"Account temporarily locked" in third.data
+
+    user = get_user_by_username(app1.app.config["DATABASE_PATH"], "admin")
+    assert user["locked_until"] is not None
 
 
 def test_job_manager_factory_uses_local_backend_by_default():

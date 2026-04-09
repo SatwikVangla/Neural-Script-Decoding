@@ -45,6 +45,8 @@ def apply_config(app):
     app.config["AUTH_REQUIRED"] = _env_flag("AUTH_REQUIRED", "false")
     app.config["ADMIN_USERNAME"] = os.environ.get("ADMIN_USERNAME", "admin")
     app.config["ADMIN_PASSWORD_HASH"] = os.environ.get("ADMIN_PASSWORD_HASH", "")
+    app.config["LOGIN_MAX_FAILURES"] = int(os.environ.get("LOGIN_MAX_FAILURES", "5"))
+    app.config["LOGIN_LOCKOUT_SECONDS"] = int(os.environ.get("LOGIN_LOCKOUT_SECONDS", "900"))
     app.config["API_KEY"] = os.environ.get("API_KEY", "")
     app.config["API_RATE_LIMIT"] = int(os.environ.get("API_RATE_LIMIT", "30"))
     app.config["API_RATE_WINDOW_SECONDS"] = int(os.environ.get("API_RATE_WINDOW_SECONDS", "60"))

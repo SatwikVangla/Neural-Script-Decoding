@@ -54,6 +54,8 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'viewer',
     is_active INTEGER NOT NULL DEFAULT 1,
+    failed_login_count INTEGER NOT NULL DEFAULT 0,
+    locked_until TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     last_login_at TEXT
@@ -122,6 +124,10 @@ def init_db(database_path):
         user_columns = [row[1] for row in connection.execute("PRAGMA table_info(users)").fetchall()]
         if "role" not in user_columns:
             connection.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'viewer'")
+        if "failed_login_count" not in user_columns:
+            connection.execute("ALTER TABLE users ADD COLUMN failed_login_count INTEGER NOT NULL DEFAULT 0")
+        if "locked_until" not in user_columns:
+            connection.execute("ALTER TABLE users ADD COLUMN locked_until TEXT")
         connection.commit()
 
 
@@ -389,7 +395,7 @@ def upsert_user(database_path, *, username, password_hash, is_active=True, role=
             connection.execute(
                 """
                 UPDATE users
-                SET password_hash = ?, is_active = ?, role = ?, updated_at = ?
+                SET password_hash = ?, is_active = ?, role = ?, failed_login_count = 0, locked_until = NULL, updated_at = ?
                 WHERE username = ?
                 """,
                 (password_hash, int(is_active), role, now, username),
@@ -397,10 +403,10 @@ def upsert_user(database_path, *, username, password_hash, is_active=True, role=
         else:
             connection.execute(
                 """
-                INSERT INTO users (username, password_hash, role, is_active, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO users (username, password_hash, role, is_active, failed_login_count, locked_until, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (username, password_hash, role, int(is_active), now, now),
+                (username, password_hash, role, int(is_active), 0, None, now, now),
             )
         connection.commit()
     return get_user_by_username(database_path, username)
@@ -411,7 +417,7 @@ def get_user_by_username(database_path, username):
         connection.row_factory = sqlite3.Row
         row = connection.execute(
             """
-            SELECT id, username, password_hash, role, is_active, created_at, updated_at, last_login_at
+            SELECT id, username, password_hash, role, is_active, failed_login_count, locked_until, created_at, updated_at, last_login_at
             FROM users
             WHERE username = ?
             """,
@@ -425,7 +431,7 @@ def list_users(database_path):
         connection.row_factory = sqlite3.Row
         rows = connection.execute(
             """
-            SELECT id, username, role, is_active, created_at, updated_at, last_login_at
+            SELECT id, username, role, is_active, failed_login_count, locked_until, created_at, updated_at, last_login_at
             FROM users
             ORDER BY username ASC
             """
@@ -452,8 +458,35 @@ def touch_user_login(database_path, username):
     now = datetime.now(timezone.utc).isoformat()
     with sqlite3.connect(database_path) as connection:
         connection.execute(
-            "UPDATE users SET last_login_at = ?, updated_at = ? WHERE username = ?",
+            """
+            UPDATE users
+            SET last_login_at = ?, failed_login_count = 0, locked_until = NULL, updated_at = ?
+            WHERE username = ?
+            """,
             (now, now, username),
+        )
+        connection.commit()
+    return get_user_by_username(database_path, username)
+
+
+def record_failed_login(database_path, username, *, max_failures, lockout_seconds):
+    user = get_user_by_username(database_path, username)
+    if user is None:
+        return None
+    failures = int(user.get("failed_login_count") or 0) + 1
+    locked_until = None
+    if max_failures > 0 and failures >= max_failures:
+        locked_until = (datetime.now(timezone.utc) + timedelta(seconds=lockout_seconds)).isoformat()
+        failures = 0
+    now = datetime.now(timezone.utc).isoformat()
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            UPDATE users
+            SET failed_login_count = ?, locked_until = ?, updated_at = ?
+            WHERE username = ?
+            """,
+            (failures, locked_until, now, username),
         )
         connection.commit()
     return get_user_by_username(database_path, username)
