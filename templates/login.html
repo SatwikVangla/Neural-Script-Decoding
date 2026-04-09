@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Login</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="page-shell">
+    <section class="hero stagger">
+      <div class="hero-row">
+        <div class="hero-brand">
+          <p class="eyebrow">Authentication</p>
+          <h1>Sign in to continue</h1>
+          <p>This deployment requires an authenticated admin session for the web interface.</p>
+        </div>
+        <div class="hero-chip">Protected</div>
+      </div>
+    </section>
+
+    <section class="panel stagger" style="margin-top: 24px;">
+      <div class="panel-inner">
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            <div class="flash-stack">
+              {% for message in messages %}
+                <div class="flash">{{ message }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
+
+        <p class="section-label">Admin Access</p>
+        <h2 class="section-title">Session login</h2>
+        <form method="post" action="{{ url_for('login', next=request.args.get('next', '')) }}" class="upload-form">
+          <label>
+            <strong>Username</strong>
+            <input class="history-input" type="text" name="username" autocomplete="username" required>
+          </label>
+          <label>
+            <strong>Password</strong>
+            <input class="history-input" type="password" name="password" autocomplete="current-password" required>
+          </label>
+          <div class="actions-row">
+            <button class="button" type="submit">Sign In</button>
+          </div>
+        </form>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

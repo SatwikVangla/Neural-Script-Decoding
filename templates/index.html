@@ -18,7 +18,15 @@
             and export the cleaned text as a PDF.
           </p>
           </div>
-        <div class="hero-chip"><a href="{{ url_for('jobs') }}">Jobs</a> · <a href="{{ url_for('system_admin') }}">System</a></div>
+        <div class="hero-chip">
+          <a href="{{ url_for('jobs') }}">Jobs</a> · <a href="{{ url_for('system_admin') }}">System</a>
+          {% if g.is_authenticated %}
+            ·
+            <form method="post" action="{{ url_for('logout') }}" class="inline-form" style="display:inline;">
+              <button class="link-button" type="submit">Logout</button>
+            </form>
+          {% endif %}
+        </div>
       </div>
     </section>
 

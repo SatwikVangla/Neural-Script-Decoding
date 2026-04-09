@@ -22,7 +22,21 @@
     <section class="layout">
       <article class="panel stagger">
         <div class="panel-inner">
-          <p class="section-label">API Access</p>
+          <p class="section-label">Web Access</p>
+          <h2 class="section-title">Session authentication</h2>
+          <div class="status-list">
+            <div class="status-row">
+              <div>
+                <strong>Web login</strong>
+                <p class="helper">Admin username: {{ operations.web.admin_username or 'not configured' }}</p>
+              </div>
+              <span class="status-pill {{ 'active' if operations.web.auth_required else 'inactive' }}">
+                {{ 'Required' if operations.web.auth_required else 'Open' }}
+              </span>
+            </div>
+          </div>
+
+          <p class="section-label" style="margin-top: 24px;">API Access</p>
           <h2 class="section-title">Authentication and rate control</h2>
           <div class="status-list">
             <div class="status-row">

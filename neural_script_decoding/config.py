@@ -42,6 +42,9 @@ def apply_config(app):
     app.config["OCR_QUEUE_BACKEND"] = os.environ.get("OCR_QUEUE_BACKEND", "local").lower()
     app.config["OCR_QUEUE_NAME"] = os.environ.get("OCR_QUEUE_NAME", "ocr")
     app.config["REDIS_URL"] = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+    app.config["AUTH_REQUIRED"] = _env_flag("AUTH_REQUIRED", "false")
+    app.config["ADMIN_USERNAME"] = os.environ.get("ADMIN_USERNAME", "admin")
+    app.config["ADMIN_PASSWORD_HASH"] = os.environ.get("ADMIN_PASSWORD_HASH", "")
     app.config["API_KEY"] = os.environ.get("API_KEY", "")
     app.config["API_RATE_LIMIT"] = int(os.environ.get("API_RATE_LIMIT", "30"))
     app.config["API_RATE_WINDOW_SECONDS"] = int(os.environ.get("API_RATE_WINDOW_SECONDS", "60"))
@@ -49,3 +52,5 @@ def apply_config(app):
     app.config["ENABLE_EASYOCR"] = _env_flag("ENABLE_EASYOCR", "false")
     app.config["ENABLE_TROCR"] = _env_flag("ENABLE_TROCR", "false")
     app.config["OLLAMA_STATUS_TIMEOUT"] = float(os.environ.get("OLLAMA_STATUS_TIMEOUT", "1.0"))
+    if app.config["AUTH_REQUIRED"] and not app.config["ADMIN_PASSWORD_HASH"]:
+        raise RuntimeError("ADMIN_PASSWORD_HASH must be set when AUTH_REQUIRED=true")

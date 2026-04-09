@@ -5,7 +5,8 @@ import time
 from datetime import datetime
 from functools import wraps
 
-from flask import abort, current_app, flash, jsonify, redirect, render_template, request, send_from_directory, url_for
+from flask import abort, current_app, flash, g, jsonify, redirect, render_template, request, send_from_directory, session, url_for
+from werkzeug.security import check_password_hash
 
 from .files import allowed_file, build_upload_paths, cleanup_files
 from .services import diagnostics_snapshot, json_download_response, ollama_status, process_ocr_file
@@ -17,11 +18,40 @@ _RATE_LIMIT_STATE = {}
 
 
 def register_routes(app):
+    @app.before_request
+    def load_auth_context():
+        g.is_authenticated = bool(session.get("authenticated"))
+        g.auth_required = current_app.config.get("AUTH_REQUIRED", False)
+
     @app.route("/")
+    @require_login
     def index():
         return render_template("index.html", system_status=_system_status())
 
+    @app.route("/login", methods=["GET", "POST"])
+    def login():
+        if not current_app.config.get("AUTH_REQUIRED", False):
+            return redirect(url_for("index"))
+        if request.method == "POST":
+            username = request.form.get("username", "").strip()
+            password = request.form.get("password", "")
+            if _authenticate(username, password):
+                session["authenticated"] = True
+                session["username"] = username
+                flash("Signed in")
+                return redirect(request.args.get("next") or url_for("index"))
+            flash("Invalid credentials")
+        return render_template("login.html")
+
+    @app.route("/logout", methods=["POST"])
+    @require_login
+    def logout():
+        session.clear()
+        flash("Signed out")
+        return redirect(url_for("login"))
+
     @app.route("/history")
+    @require_login
     def history():
         query = request.args.get("q", "").strip()
         engine = request.args.get("engine", "").strip() or None
@@ -39,6 +69,7 @@ def register_routes(app):
         )
 
     @app.route("/jobs")
+    @require_login
     def jobs():
         return render_template(
             "jobs.html",
@@ -48,6 +79,7 @@ def register_routes(app):
         )
 
     @app.route("/system")
+    @require_login
     def system_admin():
         return render_template(
             "system.html",
@@ -56,6 +88,7 @@ def register_routes(app):
         )
 
     @app.route("/jobs/<job_id>")
+    @require_login
     def job_detail(job_id):
         job = _job_manager().snapshot(job_id)
         if job is None:
@@ -67,6 +100,7 @@ def register_routes(app):
         )
 
     @app.route("/history/<int:run_id>")
+    @require_login
     def history_detail(run_id):
         run = get_run(current_app.config["DATABASE_PATH"], run_id)
         if run is None:
@@ -88,6 +122,7 @@ def register_routes(app):
         )
 
     @app.route("/history/<int:run_id>/delete", methods=["POST"])
+    @require_login
     def delete_history_run(run_id):
         deleted = delete_run(current_app.config["DATABASE_PATH"], run_id)
         if deleted is None:
@@ -103,6 +138,7 @@ def register_routes(app):
         return redirect(url_for("history"))
 
     @app.route("/upload", methods=["POST"])
+    @require_login
     def upload_file():
         if "file" not in request.files:
             flash("No file part")
@@ -153,6 +189,7 @@ def register_routes(app):
         return redirect(url_for("index"))
 
     @app.route("/download/<filename>")
+    @require_login
     def download_pdf(filename):
         safe_name = os.path.basename(filename)
         if safe_name != filename:
@@ -295,6 +332,7 @@ def register_routes(app):
         )
 
     @app.route("/jobs/<job_id>/cancel", methods=["POST"])
+    @require_login
     def cancel_job(job_id):
         job = _job_manager().cancel(job_id)
         if job is None:
@@ -306,6 +344,7 @@ def register_routes(app):
         return redirect(request.referrer or url_for("job_detail", job_id=job_id))
 
     @app.route("/jobs/<job_id>/retry", methods=["POST"])
+    @require_login
     def retry_job(job_id):
         job = _job_manager().retry(job_id)
         if job is None:
@@ -331,6 +370,7 @@ def register_routes(app):
         )
 
     @app.route("/diagnostics")
+    @require_login
     def diagnostics():
         system_status = _system_status()
         return render_template(
@@ -344,6 +384,7 @@ def register_routes(app):
         )
 
     @app.route("/download-json", methods=["POST"])
+    @require_login
     def download_json():
         payload = request.get_json(silent=True)
         if payload is None:
@@ -362,6 +403,7 @@ def register_routes(app):
         return json_download_response(payload, f"{stem}.json")
 
     @app.route("/preview/<filename>")
+    @require_login
     def preview_image(filename):
         safe_name = os.path.basename(filename)
         if safe_name != filename:
@@ -372,6 +414,7 @@ def register_routes(app):
         abort(404)
 
     @app.route("/overlay/<filename>")
+    @require_login
     def overlay_image(filename):
         safe_name = os.path.basename(filename)
         if safe_name != filename:
@@ -411,6 +454,10 @@ def _operations_snapshot():
     summary = _job_manager().summary()
     worker = _job_manager().worker_health()
     return {
+        "web": {
+            "auth_required": bool(current_app.config.get("AUTH_REQUIRED", False)),
+            "admin_username": current_app.config.get("ADMIN_USERNAME", ""),
+        },
         "api": {
             "auth_required": bool(current_app.config.get("API_KEY", "").strip()),
             "rate_limit": current_app.config.get("API_RATE_LIMIT", 0),
@@ -437,6 +484,8 @@ def _operations_snapshot():
 def require_api_access(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
+        if _session_authenticated():
+            return view(*args, **kwargs)
         unauthorized = _validate_api_key()
         if unauthorized is not None:
             return unauthorized
@@ -451,6 +500,8 @@ def require_api_access(view):
 def _validate_api_key():
     api_key = current_app.config.get("API_KEY", "").strip()
     if not api_key:
+        if current_app.config.get("AUTH_REQUIRED", False):
+            return jsonify({"error": "Unauthorized"}), 401
         return None
 
     presented = request.headers.get("X-API-Key", "").strip()
@@ -461,6 +512,19 @@ def _validate_api_key():
     if presented == api_key:
         return None
     return jsonify({"error": "Unauthorized"}), 401
+
+
+def require_login(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not current_app.config.get("AUTH_REQUIRED", False):
+            return view(*args, **kwargs)
+        if _session_authenticated():
+            return view(*args, **kwargs)
+        destination = request.full_path if request.query_string else request.path
+        return redirect(url_for("login", next=destination))
+
+    return wrapped
 
 
 def _enforce_rate_limit():
@@ -481,6 +545,16 @@ def _enforce_rate_limit():
         return response
     bucket.append(now)
     return None
+
+
+def _authenticate(username, password):
+    expected_username = current_app.config.get("ADMIN_USERNAME", "")
+    password_hash = current_app.config.get("ADMIN_PASSWORD_HASH", "")
+    return username == expected_username and bool(password_hash) and check_password_hash(password_hash, password)
+
+
+def _session_authenticated():
+    return bool(session.get("authenticated"))
 
 
 def _prune_saved_runs():

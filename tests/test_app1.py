@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 from flask import Flask
+from werkzeug.security import generate_password_hash
 
 import app
 import app1
@@ -31,6 +32,9 @@ def client(tmp_path, monkeypatch):
         MAX_STORED_JOBS=100,
         JOB_RETENTION_DAYS=7,
         BACKGROUND_OCR_WORKERS=1,
+        AUTH_REQUIRED=False,
+        ADMIN_USERNAME="admin",
+        ADMIN_PASSWORD_HASH="",
         API_KEY="",
         API_RATE_LIMIT=30,
         API_RATE_WINDOW_SECONDS=60,
@@ -518,6 +522,47 @@ def test_apply_config_accepts_secret_key_in_production(monkeypatch):
     apply_config(flask_app)
 
     assert flask_app.secret_key == "test-secret"
+
+
+def test_apply_config_requires_password_hash_when_auth_enabled(monkeypatch):
+    flask_app = Flask(__name__)
+    monkeypatch.setenv("AUTH_REQUIRED", "true")
+    monkeypatch.delenv("ADMIN_PASSWORD_HASH", raising=False)
+
+    with pytest.raises(RuntimeError, match="ADMIN_PASSWORD_HASH must be set"):
+        apply_config(flask_app)
+
+
+def test_login_required_redirects_to_login(client):
+    app1.app.config["AUTH_REQUIRED"] = True
+    app1.app.config["ADMIN_PASSWORD_HASH"] = generate_password_hash("secret-pass")
+
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 302
+    assert "/login" in response.headers["Location"]
+
+
+def test_login_allows_session_access_when_auth_enabled(client):
+    app1.app.config["AUTH_REQUIRED"] = True
+    app1.app.config["ADMIN_USERNAME"] = "admin"
+    app1.app.config["ADMIN_PASSWORD_HASH"] = generate_password_hash("secret-pass")
+
+    login_page = client.get("/login")
+    assert login_page.status_code == 200
+    assert b"Sign in to continue" in login_page.data
+
+    logged_in = client.post(
+        "/login",
+        data={"username": "admin", "password": "secret-pass"},
+        follow_redirects=True,
+    )
+
+    assert logged_in.status_code == 200
+    assert b"Neural Script Decoding" in logged_in.data
+
+    api = client.get("/api/ocr/jobs/missing-job")
+    assert api.status_code == 404
 
 
 def test_job_manager_factory_uses_local_backend_by_default():
