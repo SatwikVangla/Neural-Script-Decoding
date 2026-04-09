@@ -46,6 +46,7 @@ def register_routes(app):
             ocr_results=payload.get("ocr_results", []),
             raw_text=payload.get("raw_text", ""),
             corrected_text=payload.get("corrected_text", ""),
+            correction=payload.get("correction", {}),
             pdf_path=os.path.join(current_app.config["UPLOAD_FOLDER"], run["pdf_file_name"]) if run.get("pdf_file_name") else "",
             preview_url=url_for("preview_image", filename=run["preview_file_name"]) if run.get("preview_file_name") else "",
             overlay_url=url_for("overlay_image", filename=run["overlay_file_name"]) if run.get("overlay_file_name") else "",
@@ -90,7 +91,8 @@ def register_routes(app):
                 overlay_data = _ocr_engine().create_tesseract_overlay(paths["file_path"], paths["overlay_path"])
                 ocr_results = _ocr_engine().process_with_all_engines(paths["file_path"])
                 raw_text = _ocr_engine().combine_results(ocr_results)
-                corrected_text = correct_text_with_llm(raw_text, current_app.config)
+                correction = correct_text_with_llm(raw_text, current_app.config)
+                corrected_text = correction["text"]
                 generate_pdf(corrected_text, paths["pdf_path"], current_app.config["PDF_FONT_PATH"])
                 cleanup_files(paths["file_path"], paths["preprocessed_path"])
                 result_payload = build_result_payload(
@@ -100,6 +102,7 @@ def register_routes(app):
                     raw_text=raw_text,
                     corrected_text=corrected_text,
                     system_status=_system_status(),
+                    correction=correction,
                     regions=overlay_data.get("regions", []),
                 )
                 run_id = save_run(
@@ -115,6 +118,7 @@ def register_routes(app):
                     ocr_results=ocr_results,
                     raw_text=raw_text,
                     corrected_text=corrected_text,
+                    correction=correction,
                     pdf_path=paths["pdf_path"],
                     preview_url=url_for("preview_image", filename=os.path.basename(paths["preview_path"])),
                     overlay_url=url_for("overlay_image", filename=os.path.basename(paths["overlay_path"])) if overlay_data.get("overlay_path") else "",
@@ -162,7 +166,8 @@ def register_routes(app):
             overlay_data = _ocr_engine().create_tesseract_overlay(paths["file_path"], paths["overlay_path"])
             ocr_results = _ocr_engine().process_with_all_engines(paths["file_path"])
             combined_text = _ocr_engine().combine_results(ocr_results)
-            corrected_text = correct_text_with_llm(combined_text, current_app.config)
+            correction = correct_text_with_llm(combined_text, current_app.config)
+            corrected_text = correction["text"]
             generate_pdf(corrected_text, paths["pdf_path"], current_app.config["PDF_FONT_PATH"])
             payload = build_result_payload(
                 filename=paths["filename"],
@@ -171,6 +176,7 @@ def register_routes(app):
                 raw_text=combined_text,
                 corrected_text=corrected_text,
                 system_status=_system_status(),
+                correction=correction,
                 regions=overlay_data.get("regions", []),
             )
             run_id = save_run(

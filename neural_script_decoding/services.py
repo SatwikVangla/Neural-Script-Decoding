@@ -17,7 +17,12 @@ logger = logging.getLogger(__name__)
 
 def correct_text_with_llm(text, config):
     if not text.strip():
-        return ""
+        return {
+            "text": "",
+            "used_llm": False,
+            "status": "empty",
+            "reason": "No OCR text available for correction",
+        }
 
     prompt = f"""Please correct the following text for spelling and grammar errors.
 This text was extracted from a handwritten document using OCR, so there may be character recognition errors.
@@ -32,11 +37,27 @@ Return only the corrected text without any explanations:
             timeout=30,
         )
         if response.status_code == 200:
-            return response.json()["response"].strip()
-        return f"[Error: LLM response failed - Status {response.status_code}]"
+            return {
+                "text": response.json()["response"].strip(),
+                "used_llm": True,
+                "status": "corrected",
+                "reason": "Corrected with Ollama",
+            }
+        logger.warning("LLM response failed with status %s", response.status_code)
+        return {
+            "text": text,
+            "used_llm": False,
+            "status": "fallback",
+            "reason": f"Ollama request failed with status {response.status_code}; using raw OCR text",
+        }
     except requests.exceptions.RequestException as exc:
         logger.error("LLM request failed: %s", exc)
-        return f"[Error: LLM offline - {exc}]"
+        return {
+            "text": text,
+            "used_llm": False,
+            "status": "fallback",
+            "reason": f"Ollama unavailable ({exc}); using raw OCR text",
+        }
 
 
 def ollama_status(config):
@@ -82,7 +103,17 @@ def generate_pdf(text, output_path, font_path):
     logger.info("PDF generated: %s", output_path)
 
 
-def build_result_payload(*, filename, original_name, ocr_results, raw_text, corrected_text, system_status, regions=None):
+def build_result_payload(
+    *,
+    filename,
+    original_name,
+    ocr_results,
+    raw_text,
+    corrected_text,
+    system_status,
+    correction=None,
+    regions=None,
+):
     selected_engine = None
     for result in ocr_results:
         if result.get("text") == raw_text and "error" not in result:
@@ -96,6 +127,7 @@ def build_result_payload(*, filename, original_name, ocr_results, raw_text, corr
         "ocr_results": ocr_results,
         "raw_text": raw_text,
         "corrected_text": corrected_text,
+        "correction": correction or {},
         "regions": regions or [],
         "system": system_status,
         "generated_at": datetime.now(timezone.utc).isoformat(),

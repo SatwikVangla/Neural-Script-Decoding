@@ -1,5 +1,6 @@
 <section class="panel stagger" style="margin-top: 24px;">
   <div class="panel-inner">
+    {% set correction = correction|default({}) %}
     <p class="section-label">Summary</p>
     <h2 class="section-title">Extraction overview</h2>
     {% if preview_url %}
@@ -82,11 +83,16 @@
         <article class="text-card stagger">
           <div class="text-head">
             <strong>Corrected text</strong>
-            <span class="pill">LLM refinement</span>
+            <span class="pill">
+              {% if correction.get('used_llm') %}LLM refinement{% else %}Raw OCR fallback{% endif %}
+            </span>
           </div>
           <div class="text-body">
             <pre class="text-block">{{ corrected_text or "No correction available" }}</pre>
           </div>
+          {% if correction.get('reason') %}
+            <p class="helper">{{ correction.get('reason') }}</p>
+          {% endif %}
         </article>
       </div>
 

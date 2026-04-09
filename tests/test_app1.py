@@ -52,7 +52,16 @@ def client(tmp_path, monkeypatch):
             "trocr": {"enabled": False, "installed": False, "ready": False, "reason": "Disabled by configuration"},
         },
     )
-    monkeypatch.setattr(web, "correct_text_with_llm", lambda text, _config: f"fixed {text}")
+    monkeypatch.setattr(
+        web,
+        "correct_text_with_llm",
+        lambda text, _config: {
+            "text": f"fixed {text}",
+            "used_llm": True,
+            "status": "corrected",
+            "reason": "Corrected with Ollama",
+        },
+    )
     monkeypatch.setattr(web, "ollama_status", lambda _config: {"configured": True, "reachable": False, "reason": "Connection refused"})
 
     def fake_pdf(text, output_path, _font_path):
@@ -108,6 +117,7 @@ def test_api_ocr_returns_json_and_cleans_temp_files(client):
     assert payload["success"] is True
     assert payload["raw_text"] == "rich raw text output"
     assert payload["corrected_text"] == "fixed rich raw text output"
+    assert payload["correction"]["used_llm"] is True
     assert payload["system"]["engines"]["tesseract"]["ready"] is True
     assert payload["selected_engine"] == "easyocr"
     assert "/download/" in payload["pdf_url"]
@@ -165,8 +175,38 @@ def test_history_pages_render_saved_runs(client):
     assert detail.status_code == 200
     assert b"Stored Run" in detail.data
     assert b"rich raw text output" in detail.data
+    assert b"Corrected with Ollama" in detail.data
     assert b"/preview/" in detail.data
     assert b"Detected words and confidence" in detail.data
+
+
+def test_upload_falls_back_to_raw_text_when_llm_is_unavailable(client, monkeypatch):
+    monkeypatch.setattr(
+        web,
+        "correct_text_with_llm",
+        lambda text, _config: {
+            "text": text,
+            "used_llm": False,
+            "status": "fallback",
+            "reason": "Ollama unavailable (Connection refused); using raw OCR text",
+        },
+    )
+
+    response = client.post(
+        "/upload",
+        data={"file": (BytesIO(b"fake-image-bytes"), "note.jpg")},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 200
+    assert b"rich raw text output" in response.data
+    assert b"Ollama unavailable" in response.data
+    assert b"[Error: LLM offline" not in response.data
+
+    detail = client.get("/history/1")
+    assert detail.status_code == 200
+    assert b"Ollama unavailable" in detail.data
+    assert b"[Error: LLM offline" not in detail.data
 
 
 def test_history_filters_and_delete(client):
