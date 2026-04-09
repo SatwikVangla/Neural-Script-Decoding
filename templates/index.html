@@ -59,6 +59,10 @@
                 <span>Supports PNG, JPG, JPEG, GIF, and BMP up to 16 MB. Click or drag a file into this area.</span>
               </div>
             </label>
+            <label class="helper" style="display:flex; gap:8px; align-items:center;">
+              <input type="checkbox" name="use_llm" value="true" {% if system_status.get('ollama', {}).get('reachable') %}checked{% endif %}>
+              Apply Ollama correction
+            </label>
             <p id="file-name" class="file-name"></p>
             <div class="actions-row">
               <button class="button" type="submit">Process Image</button>

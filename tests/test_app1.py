@@ -12,6 +12,7 @@ import app
 import app1
 from neural_script_decoding import background_jobs
 from neural_script_decoding.background_jobs import InProcessOCRJobManager, create_job_manager
+from neural_script_decoding.app_factory import create_app
 from neural_script_decoding.config import apply_config
 from neural_script_decoding import services
 from neural_script_decoding import web
@@ -384,6 +385,18 @@ def test_upload_falls_back_to_raw_text_when_llm_is_unavailable(client, monkeypat
     assert b"[Error: LLM offline" not in detail.data
 
 
+def test_upload_can_skip_llm_correction(client):
+    response = client.post(
+        "/upload",
+        data={"file": (BytesIO(b"fake-image-bytes"), "note.jpg"), "use_llm": "false"},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 200
+    assert b"LLM correction disabled for this request" in response.data
+    assert b"Raw OCR fallback" in response.data
+
+
 def test_diagnostics_page_renders_runtime_state(client):
     response = client.get("/diagnostics")
 
@@ -522,6 +535,46 @@ def test_apply_config_accepts_secret_key_in_production(monkeypatch):
     apply_config(flask_app)
 
     assert flask_app.secret_key == "test-secret"
+
+
+def test_correct_text_with_llm_uses_configured_timeout(monkeypatch):
+    calls = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {"response": "fixed text"}
+
+    def fake_post(url, json, timeout):
+        calls["url"] = url
+        calls["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(services.requests, "post", fake_post)
+
+    result = services.correct_text_with_llm("raw text", {"OLLAMA_URL": "http://example/api/generate", "OLLAMA_MODEL": "phi3:mini", "OLLAMA_GENERATE_TIMEOUT": 12.5})
+
+    assert result["used_llm"] is True
+    assert calls["timeout"] == 12.5
+
+
+def test_app_factory_can_skip_ollama_warmup(monkeypatch):
+    monkeypatch.setenv("FLASK_SECRET_KEY", "test-secret")
+    monkeypatch.setenv("OLLAMA_WARMUP_ENABLED", "false")
+
+    called = {"warmup": False}
+
+    def fake_warmup(_config):
+        called["warmup"] = True
+
+    monkeypatch.setattr("neural_script_decoding.app_factory.warmup_ollama", fake_warmup)
+
+    app_instance = create_app()
+
+    assert app_instance is not None
+    assert called["warmup"] is False
 
 
 def test_apply_config_requires_password_hash_when_auth_enabled(monkeypatch):

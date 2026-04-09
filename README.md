@@ -177,6 +177,10 @@ The app reads configuration from environment variables.
 | `OLLAMA_STATUS_TIMEOUT` | `1.0` | Timeout for Ollama reachability checks |
 | `OLLAMA_URL` | `http://localhost:11434/api/generate` | Ollama generate endpoint |
 | `OLLAMA_MODEL` | `phi3:mini` | Ollama model name |
+| `OLLAMA_GENERATE_TIMEOUT` | `45` | Timeout for text correction requests to Ollama |
+| `OLLAMA_WARMUP_ENABLED` | `true` | Warm the selected Ollama model in the background at startup |
+| `OLLAMA_WARMUP_TIMEOUT` | `10` | Timeout for the startup warmup request |
+| `ENABLE_LLM_CORRECTION_BY_DEFAULT` | `true` | Default whether uploads/API OCR runs should use Ollama correction |
 
 Example:
 
@@ -269,6 +273,13 @@ Optional engines:
 
 For heavier OCR or LLM correction requests, use the background job API instead of blocking on `/api/ocr`.
 
+You can disable LLM correction per request:
+
+```bash
+curl -F "file=@note.jpg" -F "use_llm=false" http://127.0.0.1:5000/api/ocr
+curl -F "file=@note.jpg" -F "use_llm=false" http://127.0.0.1:5000/api/ocr/jobs
+```
+
 Create a job:
 
 ```bash
@@ -310,6 +321,8 @@ The UI now also exposes:
 
 - `/diagnostics` for OCR/runtime dependency checks
 - `/system` for API protection, worker heartbeat, queue counts, and retention settings
+
+The upload page also includes an `Apply Ollama correction` toggle so you can skip LLM correction for faster, more predictable runs.
 
 ## Docker Compose
 

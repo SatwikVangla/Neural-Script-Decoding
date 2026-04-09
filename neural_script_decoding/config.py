@@ -29,6 +29,10 @@ def apply_config(app):
     app.config["MAX_CONTENT_LENGTH"] = int(os.environ.get("MAX_CONTENT_LENGTH_MB", "16")) * 1024 * 1024
     app.config["OLLAMA_URL"] = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
     app.config["OLLAMA_MODEL"] = os.environ.get("OLLAMA_MODEL", "phi3:mini")
+    app.config["ENABLE_LLM_CORRECTION_BY_DEFAULT"] = _env_flag("ENABLE_LLM_CORRECTION_BY_DEFAULT", "true")
+    app.config["OLLAMA_GENERATE_TIMEOUT"] = float(os.environ.get("OLLAMA_GENERATE_TIMEOUT", "45"))
+    app.config["OLLAMA_WARMUP_ENABLED"] = _env_flag("OLLAMA_WARMUP_ENABLED", "true")
+    app.config["OLLAMA_WARMUP_TIMEOUT"] = float(os.environ.get("OLLAMA_WARMUP_TIMEOUT", "10"))
     app.config["PDF_FONT_PATH"] = resolve_path("PDF_FONT_PATH", Path("static") / "DejaVuSans.ttf")
     app.config["DATABASE_PATH"] = resolve_path("DATABASE_PATH", Path("instance") / "neural_script_decoding.sqlite3")
     app.config["APP_HOST"] = os.environ.get("APP_HOST", "0.0.0.0")

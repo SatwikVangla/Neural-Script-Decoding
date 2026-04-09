@@ -79,7 +79,30 @@
 
       <aside class="panel stagger">
         <div class="panel-inner">
-          <p class="section-label">Queue Status</p>
+          <p class="section-label">LLM Reliability</p>
+          <h2 class="section-title">Correction defaults and warmup</h2>
+          <div class="status-list">
+            <div class="status-row">
+              <div>
+                <strong>LLM correction default</strong>
+                <p class="helper">Generate timeout {{ operations.llm.generate_timeout }} seconds.</p>
+              </div>
+              <span class="status-pill {{ 'active' if operations.llm.enabled_by_default else 'inactive' }}">
+                {{ 'Enabled' if operations.llm.enabled_by_default else 'Disabled' }}
+              </span>
+            </div>
+            <div class="status-row">
+              <div>
+                <strong>Ollama warmup</strong>
+                <p class="helper">Warmup timeout {{ operations.llm.warmup_timeout }} seconds.</p>
+              </div>
+              <span class="status-pill {{ 'active' if operations.llm.warmup_enabled else 'inactive' }}">
+                {{ 'Enabled' if operations.llm.warmup_enabled else 'Disabled' }}
+              </span>
+            </div>
+          </div>
+
+          <p class="section-label" style="margin-top: 24px;">Queue Status</p>
           <h2 class="section-title">Worker and retention</h2>
           <div class="status-list">
             <div class="status-row">

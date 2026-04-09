@@ -1,4 +1,5 @@
 import logging
+import threading
 from pathlib import Path
 
 from flask import Flask
@@ -6,6 +7,7 @@ from flask import Flask
 from .background_jobs import create_job_manager
 from .config import apply_config
 from .ocr import MultiOCREngine
+from .services import warmup_ollama
 from .storage import init_db, upsert_user
 from .web import register_routes
 
@@ -32,5 +34,7 @@ def create_app():
         )
     app.extensions["ocr_engine"] = MultiOCREngine(app.config)
     app.extensions["ocr_job_manager"] = create_job_manager(config=app.config, ocr_engine=app.extensions["ocr_engine"])
+    if app.config.get("OLLAMA_WARMUP_ENABLED", True):
+        threading.Thread(target=warmup_ollama, args=(app.config,), name="ollama-warmup", daemon=True).start()
     register_routes(app)
     return app

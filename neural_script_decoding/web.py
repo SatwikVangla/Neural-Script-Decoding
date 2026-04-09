@@ -285,6 +285,7 @@ def register_routes(app):
 
         if file and allowed_file(file.filename):
             paths = build_upload_paths(current_app.config["UPLOAD_FOLDER"], file.filename)
+            paths["use_llm"] = _request_wants_llm()
             file.save(paths["file_path"])
 
             try:
@@ -348,6 +349,7 @@ def register_routes(app):
         paths = None
         try:
             paths = build_upload_paths(current_app.config["UPLOAD_FOLDER"], file.filename)
+            paths["use_llm"] = _request_wants_llm()
             file.save(paths["file_path"])
             logger.info("API OCR request for %s", paths["filename"])
             result = _run_ocr_pipeline(paths)
@@ -387,6 +389,7 @@ def register_routes(app):
             return jsonify({"error": "Invalid file type"}), 400
 
         paths = build_upload_paths(current_app.config["UPLOAD_FOLDER"], file.filename)
+        paths["use_llm"] = _request_wants_llm()
         try:
             file.save(paths["file_path"])
             logger.info("Queued async OCR request for %s", paths["filename"])
@@ -601,6 +604,12 @@ def _operations_snapshot():
             "rate_limit": current_app.config.get("API_RATE_LIMIT", 0),
             "rate_window_seconds": current_app.config.get("API_RATE_WINDOW_SECONDS", 60),
         },
+        "llm": {
+            "enabled_by_default": bool(current_app.config.get("ENABLE_LLM_CORRECTION_BY_DEFAULT", True)),
+            "generate_timeout": current_app.config.get("OLLAMA_GENERATE_TIMEOUT", 45),
+            "warmup_enabled": bool(current_app.config.get("OLLAMA_WARMUP_ENABLED", True)),
+            "warmup_timeout": current_app.config.get("OLLAMA_WARMUP_TIMEOUT", 10),
+        },
         "jobs": {
             "backend": summary.get("backend"),
             "queue_name": summary.get("queue_name", ""),
@@ -748,6 +757,18 @@ def _user_locked(user):
         return datetime.fromisoformat(locked_until) > datetime.now(timezone.utc)
     except ValueError:
         return False
+
+
+def _request_wants_llm():
+    raw = request.form.get("use_llm")
+    if raw is None:
+        raw = request.args.get("use_llm")
+    if raw is None and request.is_json:
+        payload = request.get_json(silent=True) or {}
+        raw = payload.get("use_llm")
+    if raw is None:
+        return current_app.config.get("ENABLE_LLM_CORRECTION_BY_DEFAULT", True)
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _prune_saved_runs():

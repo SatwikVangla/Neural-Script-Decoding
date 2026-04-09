@@ -38,7 +38,7 @@ Return only the corrected text without any explanations:
         response = requests.post(
             config["OLLAMA_URL"],
             json={"model": config["OLLAMA_MODEL"], "prompt": prompt, "stream": False},
-            timeout=30,
+            timeout=config.get("OLLAMA_GENERATE_TIMEOUT", 45),
         )
         if response.status_code == 200:
             return {
@@ -62,6 +62,15 @@ Return only the corrected text without any explanations:
             "status": "fallback",
             "reason": f"Ollama unavailable ({exc}); using raw OCR text",
         }
+
+
+def skip_llm_correction(text, reason):
+    return {
+        "text": text,
+        "used_llm": False,
+        "status": "skipped",
+        "reason": reason,
+    }
 
 
 def ollama_status(config):
@@ -118,7 +127,10 @@ def process_ocr_file(*, ocr_engine, config, paths, system_status):
     overlay_data = ocr_engine.create_tesseract_overlay(paths["file_path"], paths["overlay_path"])
     ocr_results = ocr_engine.process_with_all_engines(paths["file_path"])
     raw_text = ocr_engine.combine_results(ocr_results)
-    correction = correct_text_with_llm(raw_text, config)
+    if paths.get("use_llm", config.get("ENABLE_LLM_CORRECTION_BY_DEFAULT", True)):
+        correction = correct_text_with_llm(raw_text, config)
+    else:
+        correction = skip_llm_correction(raw_text, "LLM correction disabled for this request")
     corrected_text = correction["text"]
     generate_pdf(corrected_text, paths["pdf_path"], config["PDF_FONT_PATH"])
     result_payload = build_result_payload(
@@ -139,6 +151,25 @@ def process_ocr_file(*, ocr_engine, config, paths, system_status):
         "overlay_data": overlay_data,
         "result_payload": result_payload,
     }
+
+
+def warmup_ollama(config):
+    url = config.get("OLLAMA_URL")
+    if not url:
+        return {"attempted": False, "ready": False, "reason": "OLLAMA_URL is not configured"}
+
+    try:
+        response = requests.post(
+            url,
+            json={"model": config["OLLAMA_MODEL"], "prompt": "warmup", "stream": False},
+            timeout=config.get("OLLAMA_WARMUP_TIMEOUT", 10),
+        )
+        if response.ok:
+            return {"attempted": True, "ready": True, "reason": "Warmup completed"}
+        return {"attempted": True, "ready": False, "reason": f"Warmup failed with HTTP {response.status_code}"}
+    except requests.exceptions.RequestException as exc:
+        logger.info("Ollama warmup failed: %s", exc)
+        return {"attempted": True, "ready": False, "reason": str(exc)}
 
 
 def build_result_payload(
