@@ -6,6 +6,17 @@ Neural Script Decoding is a Flask application for extracting text from handwritt
 
 `app.py` is the canonical entrypoint. `app1.py` remains as a compatibility shim that exposes the same Flask app object.
 
+## Development Log
+
+Current development day: `Day 4`
+
+- `Day 1`: Imported the project into the repository, cleaned the workspace, and hardened upload handling for the base OCR flow.
+- `Day 2`: Improved the UI, refactored the Flask app structure, expanded OCR selection, added JSON export, persisted OCR history, and introduced preview and overlay inspection views.
+- `Day 3`: Stabilized OCR and PDF behavior, improved Ollama fallback behavior, documented local setup, added the async OCR API, introduced Redis-backed worker support, and persisted async job history with stronger operational controls.
+- `Day 4`: Added the system operations dashboard, session authentication, stored users, audit logging, user roles, CSRF protection, login lockout handling, worker import fixes, and Ollama reliability improvements.
+
+This status is based on the implemented milestones already present in the repository and the current commit history.
+
 ## Features
 
 - Multi-engine OCR orchestration across Tesseract, EasyOCR, and TrOCR
